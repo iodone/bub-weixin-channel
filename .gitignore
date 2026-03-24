@@ -1,0 +1,5 @@
+.alma-snapshots
+.env
+.venv
+__pycache__/
+*.pyc
