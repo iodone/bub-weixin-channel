@@ -5,7 +5,7 @@ description = "WeChat channel plugin for Bub framework"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "bub>=0.3.0",
+    "bub>=0.3.1",
     "weixin-agent-sdk @ git+https://github.com/iodone/weixin-agent-sdk",
 ]
 

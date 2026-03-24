@@ -237,7 +237,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "bub", specifier = ">=0.3.0" },
+    { name = "bub", specifier = ">=0.3.1" },
     { name = "weixin-agent-sdk", git = "https://github.com/iodone/weixin-agent-sdk" },
 ]
 

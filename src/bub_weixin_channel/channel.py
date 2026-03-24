@@ -35,7 +35,7 @@ class WeixinChannel(Channel):
     async def start(self, stop_event: asyncio.Event) -> None:
         """Start WeChat bot polling."""
         self._stop_event = stop_event
-        
+
         # Import weixin_agent here to avoid import errors if not installed
         try:
             from weixin_agent import start as weixin_start
@@ -45,7 +45,7 @@ class WeixinChannel(Channel):
             return
 
         logger.info("[weixin] starting bot")
-        
+
         # Start weixin bot in background task
         async def run_bot():
             try:
@@ -63,16 +63,6 @@ class WeixinChannel(Channel):
                     self._stop_event.set()
 
         self._task = asyncio.create_task(run_bot())
-        
-        # Wait for stop signal
-        await stop_event.wait()
-        
-        if self._task and not self._task.done():
-            self._task.cancel()
-            try:
-                await self._task
-            except asyncio.CancelledError:
-                pass
 
     async def stop(self) -> None:
         """Stop WeChat bot."""
@@ -88,8 +78,10 @@ class WeixinChannel(Channel):
 
     async def send(self, message: ChannelMessage) -> None:
         """Send message through WeChat channel.
-        
+
         Note: weixin-agent-sdk handles sending internally through the Agent.chat() response.
         This method is not used for normal flow, but kept for interface compatibility.
         """
-        logger.debug(f"weixin.send called (handled by agent.chat): {message.content[:50]}...")
+        logger.debug(
+            f"weixin.send called (handled by agent.chat): {message.content[:50]}..."
+        )
