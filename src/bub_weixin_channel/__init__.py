@@ -1,0 +1,1 @@
+"""Bub WeChat channel plugin."""
