@@ -1,23 +1,25 @@
 [project]
-name = "bub-weixin-channel"
-version = "0.1.0"
-description = "WeChat channel plugin for Bub framework"
+name = "bub-im-bridge"
+version = "0.3.0"
+description = "WeChat and Feishu channel plugins for Bub framework"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "bub>=0.3.1",
     "weixin-agent-sdk @ git+https://github.com/iodone/weixin-agent-sdk",
+    "lark-oapi>=1.3.0",
 ]
 
 [project.entry-points."bub"]
-weixin_channel = "bub_weixin_channel.plugin:WeixinPlugin"
+weixin_channel = "bub_im_bridge.weixin.plugin:WeixinPlugin"
+feishu_channel = "bub_im_bridge.feishu.plugin:FeishPlugin"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/bub_weixin_channel"]
+packages = ["src/bub_im_bridge"]
 
 [tool.hatch.metadata]
 allow-direct-references = true

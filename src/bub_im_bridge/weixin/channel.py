@@ -12,7 +12,7 @@ from bub.channels.message import ChannelMessage
 from bub.framework import BubFramework
 from bub.hookspecs import hookimpl
 
-from bub_weixin_channel.agent_adapter import BubWeixinAgent
+from bub_im_bridge.weixin.agent_adapter import BubWeixinAgent
 
 
 class WeixinChannel(Channel):
