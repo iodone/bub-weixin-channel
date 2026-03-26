@@ -1,16 +1,18 @@
 [project]
 name = "bub-weixin-channel"
-version = "0.1.0"
-description = "WeChat channel plugin for Bub framework"
+version = "0.2.0"
+description = "WeChat and Feishu channel plugins for Bub framework"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "bub>=0.3.1",
     "weixin-agent-sdk @ git+https://github.com/iodone/weixin-agent-sdk",
+    "lark-oapi>=1.3.0",
 ]
 
 [project.entry-points."bub"]
 weixin_channel = "bub_weixin_channel.plugin:WeixinPlugin"
+feishu_channel = "bub_weixin_channel.feishu.plugin:FeishPlugin"
 
 [build-system]
 requires = ["hatchling"]
