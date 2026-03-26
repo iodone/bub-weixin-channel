@@ -8,7 +8,7 @@ from bub.framework import BubFramework
 from bub.hookspecs import hookimpl
 from bub.types import MessageHandler
 
-from bub_weixin_channel.feishu.channel import FeishuChannel
+from bub_im_bridge.feishu.channel import FeishuChannel
 
 
 class FeishPlugin:

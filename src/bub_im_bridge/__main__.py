@@ -1,4 +1,4 @@
-"""CLI entry point for bub-weixin-channel."""
+"""CLI entry point for bub-im-bridge."""
 
 import asyncio
 import sys
@@ -6,7 +6,7 @@ import sys
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: python -m bub_weixin_channel <command>")
+        print("Usage: python -m bub_im_bridge <command>")
         print()
         print("Commands:")
         print("  login    Login to WeChat (scan QR code)")
@@ -16,6 +16,7 @@ def main():
 
     if command == "login":
         from weixin_agent import login
+
         asyncio.run(login())
     else:
         print(f"Unknown command: {command}")
