@@ -209,7 +209,16 @@ class FeishuChannel(Channel):
         if not root_id and (info := self._last_msg.get(message.chat_id)):
             root_id = info.get("root_id", "")
 
-        content_json = json.dumps({"text": text})
+        # 使用post消息类型支持markdown渲染
+        content_json = json.dumps(
+            {
+                "zh_cn": {
+                    "title": "",
+                    "content": [[{"tag": "md", "text": text}]],
+                }
+            },
+            ensure_ascii=False,
+        )
 
         if root_id:
             req = (
@@ -218,7 +227,7 @@ class FeishuChannel(Channel):
                 .request_body(
                     ReplyMessageRequestBody.builder()
                     .content(content_json)
-                    .msg_type("text")
+                    .msg_type("post")
                     .build()
                 )
                 .build()
@@ -233,7 +242,7 @@ class FeishuChannel(Channel):
                 .request_body(
                     CreateMessageRequestBody.builder()
                     .receive_id(message.chat_id)
-                    .msg_type("text")
+                    .msg_type("post")
                     .content(content_json)
                     .build()
                 )
