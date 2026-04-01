@@ -9,18 +9,12 @@
 ### 第一步：安装
 
 ```bash
-git clone https://github.com/iodone/bub-weixin-channel.git
-cd bub-weixin-channel
-uv sync
+uv pip install "git+https://github.com/iodone/bub-im-bridge.git"
 ```
 
 ### 第二步：配置
 
-```bash
-cp .env.example .env
-```
-
-编辑 `.env`，填入你的配置（至少需要 `BUB_MODEL` 和 `BUB_API_KEY`）：
+创建 `.env` 文件，填入你的配置（至少需要 `BUB_MODEL` 和 `BUB_API_KEY`）：
 
 ```env
 BUB_MODEL=anthropic:claude-sonnet-4-20250514
@@ -135,7 +129,7 @@ uv run bub gateway
 | `BUB_TELEGRAM_ALLOW_CHATS` | 允许的 Chat ID，逗号分隔 | ❌ |
 | `BUB_TELEGRAM_PROXY` | HTTP 代理地址 | ❌ |
 
-> 完整配置参考 [`.env.example`](.env.example)
+> 完整配置参考 [`.env.example`](https://github.com/iodone/bub-im-bridge/blob/main/.env.example)
 
 ## 消息类型
 
