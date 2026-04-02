@@ -147,12 +147,34 @@ class FeishuChannel(Channel):
     def _on_message_event(self, data: Any) -> None:
         """Handle incoming message event from WebSocket."""
         try:
-            logger.info("feishu._on_message_event triggered")
-
             # Convert to dict for easier access
             payload = self._to_payload_dict(data)
-            logger.debug(
-                f"feishu.raw_event: {json.dumps(payload, ensure_ascii=False)[:500]}"
+
+            # Log raw event for debugging
+            event = payload.get("event", {})
+            message = event.get("message", {})
+            chat_type = message.get("chat_type", "unknown")
+            event_type = payload.get("header", {}).get("event_type", "unknown")
+
+            logger.info(
+                "feishu.event received: event_type={} chat_type={}",
+                event_type,
+                chat_type,
+            )
+
+            # Normalize event
+            message_data = self._normalize_event(payload)
+            if message_data is None:
+                logger.warning("feishu._on_message_event: normalized message is None")
+                return
+
+            logger.info(
+                "feishu.incoming chat_type={} chat_id={} sender={} has_mentions={} text={}",
+                message_data["chat_type"],
+                message_data["chat_id"],
+                message_data["sender_open_id"],
+                len(message_data["mentions"]),
+                message_data["text"][:50] if message_data["text"] else "",
             )
 
             # Normalize event
