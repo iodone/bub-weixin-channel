@@ -116,11 +116,7 @@ class FeishuChannel(Channel):
             daemon=True,
         )
         self._ws_thread.start()
-
         logger.info("feishu.start listening")
-
-        # Wait for stop event
-        await self._stop_event.wait()
 
     async def stop(self) -> None:
         logger.info("feishu.stop stopping")
