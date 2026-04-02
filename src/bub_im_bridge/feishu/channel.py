@@ -15,7 +15,6 @@ from lark_oapi.api.im.v1 import (
     ReplyMessageRequest,
     ReplyMessageRequestBody,
 )
-from lark_oapi.api.im.v1.model import MentionEvent
 from loguru import logger
 
 from bub.channels.base import Channel
@@ -37,8 +36,6 @@ class FeishuChannel(Channel):
     name: ClassVar[str] = "feishu"
 
     def __init__(self, on_receive: MessageHandler) -> None:
-        import os
-
         self._on_receive = on_receive
         self._app_id = os.environ.get("BUB_FEISHU_APP_ID", "")
         self._app_secret = os.environ.get("BUB_FEISHU_APP_SECRET", "")
@@ -47,10 +44,10 @@ class FeishuChannel(Channel):
             for u in os.environ.get("BUB_FEISHU_ALLOW_USERS", "").split(",")
             if u.strip()
         }
+        self._bot_open_id = os.environ.get("BUB_FEISHU_BOT_OPEN_ID", "")
         self._api_client: lark.Client | None = None
         self._ws_thread: threading.Thread | None = None
         self._last_msg: dict[str, dict[str, str]] = {}
-        self._bot_open_id: str | None = None
 
     @property
     def needs_debounce(self) -> bool:
@@ -61,7 +58,11 @@ class FeishuChannel(Channel):
             logger.error("feishu: BUB_FEISHU_APP_ID or BUB_FEISHU_APP_SECRET not set")
             return
 
-        logger.info("feishu.start allow_users_count={}", len(self._allow_users))
+        logger.info(
+            "feishu.start allow_users_count={} bot_open_id={}",
+            len(self._allow_users),
+            self._bot_open_id or "(not set)",
+        )
 
         # API client for sending
         self._api_client = (
@@ -70,9 +71,6 @@ class FeishuChannel(Channel):
             .app_secret(self._app_secret)
             .build()
         )
-
-        # Get bot open_id for group chat mention detection
-        self._fetch_bot_open_id()
 
         # WebSocket client for receiving (runs in daemon thread)
         encrypt_key = os.environ.get("BUB_FEISHU_ENCRYPT_KEY", "")
@@ -97,44 +95,67 @@ class FeishuChannel(Channel):
 
         self._ws_thread = threading.Thread(target=run_ws, daemon=True)
         self._ws_thread.start()
-        logger.info("feishu.start listening bot_open_id={}", self._bot_open_id)
+        logger.info("feishu.start listening")
 
     async def stop(self) -> None:
         logger.info("feishu.stop stopping")
 
-    def _fetch_bot_open_id(self) -> None:
-        """Fetch bot's open_id via IM API for group chat mention detection."""
-        if not self._api_client:
-            return
-        try:
-            from lark_oapi.api.im.v1 import ListChatRequest, ListChatRequestBuilder
+    def _extract_mentions(self, msg: Any) -> list[dict[str, str | None]]:
+        """Extract mention info from message."""
+        mentions = []
+        raw_mentions = msg.mentions or []
+        for m in raw_mentions:
+            mention_id = getattr(m, "id", None) or {}
+            open_id = getattr(mention_id, "open_id", None)
+            if isinstance(mention_id, dict):
+                open_id = mention_id.get("open_id")
+            mentions.append(
+                {
+                    "open_id": open_id,
+                    "name": getattr(m, "name", None),
+                    "key": getattr(m, "key", None),
+                }
+            )
+        return mentions
 
-            # List chats where bot is a member to find bot's open_id
-            req = ListChatRequest.builder().user_id_type("open_id").page_size(1).build()
-            resp = self._api_client.im.v1.chat.list(req)
-            if resp.success() and resp.data and resp.data.items:
-                # Bot open_id is the app's open_id, format: ou_xxx
-                # Try to extract from first chat if available
-                pass
-        except Exception as e:
-            logger.debug(f"feishu._fetch_bot_open_id info: {e}")
+    def _is_active(
+        self,
+        chat_type: str,
+        text: str,
+        mentions: list[dict[str, str | None]],
+        parent_id: str | None,
+    ) -> bool:
+        """Determine if message should be processed (is_active)."""
+        # Private chat: always active
+        if chat_type == "p2p":
+            return True
 
-        # Fallback: bot open_id is derived from app_id
-        # For Feishu bots, the open_id follows the pattern ou_{app_id_without_cli_prefix}
-        if self._app_id.startswith("cli_"):
-            self._bot_open_id = "ou_" + self._app_id[4:]
+        # Text starts with "," (command)
+        if text.strip().startswith(","):
+            return True
 
-    def _is_bot_mentioned(self, mentions: list[MentionEvent] | None) -> bool:
-        """Check if bot is mentioned in the message."""
-        if not mentions:
-            return False
-        for mention in mentions:
-            if not mention.id:
-                continue
-            # Check if mention's open_id matches bot's open_id
-            mention_open_id = getattr(mention.id, "open_id", None)
-            if mention_open_id and mention_open_id == self._bot_open_id:
+        # Contains "bub" keyword
+        if "bub" in text.lower():
+            return True
+
+        # Mentions bot (by open_id)
+        if self._bot_open_id:
+            for m in mentions:
+                if m.get("open_id") == self._bot_open_id:
+                    return True
+
+        # Mentions someone named "bub"
+        for m in mentions:
+            name = (m.get("name") or "").lower()
+            if "bub" in name:
                 return True
+
+        # Reply to bot's message
+        if parent_id:
+            last = self._last_msg.get(chat_id := mentions[0].get("open_id", ""), {})
+            # Simplified: if parent_id matches last bot message, treat as active
+            # This requires tracking bot's sent message IDs
+
         return False
 
     def _on_message(self, data: lark.im.v1.P2ImMessageReceiveV1) -> None:
@@ -145,20 +166,16 @@ class FeishuChannel(Channel):
                 return
 
             sender_id = sender.sender_id or {}
-            open_id = getattr(sender_id, "open_id", None) or sender_id.get(
-                "open_id", ""
-            )
+            open_id = getattr(sender_id, "open_id", None)
+            if isinstance(sender_id, dict):
+                open_id = sender_id.get("open_id", "")
+            open_id = open_id or ""
 
             if self._allow_users and open_id not in self._allow_users:
                 return
 
             chat_type = msg.chat_type or "p2p"
             chat_id = msg.chat_id or open_id
-
-            # Group: skip if bot not mentioned
-            if chat_type in ("group", "topic"):
-                if not self._is_bot_mentioned(msg.mentions):
-                    return
 
             # Parse content
             msg_type = msg.message_type or "text"
@@ -184,6 +201,13 @@ class FeishuChannel(Channel):
                 )
             else:
                 text = f"[{msg_type}]"
+
+            # Extract mentions and check activation
+            mentions = self._extract_mentions(msg)
+            is_active = self._is_active(chat_type, text, mentions, msg.parent_id)
+
+            if not is_active:
+                return
 
             # Store for reply
             root_id = msg.root_id or msg.message_id
