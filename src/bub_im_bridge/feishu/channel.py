@@ -144,17 +144,9 @@ class FeishuChannel(Channel):
         if "bub" in text.lower():
             return True
 
-        # Mentions bot (by open_id)
-        if self._bot_open_id:
-            for m in mentions:
-                if m.get("open_id") == self._bot_open_id:
-                    return True
-
-        # Mentions someone named "bub"
-        for m in mentions:
-            name = (m.get("name") or "").lower()
-            if "bub" in name:
-                return True
+        # If has mentions in group chat, treat as active (any @ triggers response)
+        if mentions:
+            return True
 
         # Reply to bot's message (check if parent_id exists in any chat's last_msg)
         # Note: This is a simplified check. For full support, track bot's sent message IDs.
@@ -167,9 +159,11 @@ class FeishuChannel(Channel):
 
     def _on_message(self, data: lark.im.v1.P2ImMessageReceiveV1) -> None:
         try:
+            logger.info("feishu._on_message triggered")
             msg = data.event.message
             sender = data.event.sender
             if not msg or not sender:
+                logger.warning("feishu._on_message: no msg or sender")
                 return
 
             sender_id = sender.sender_id or {}
@@ -178,14 +172,25 @@ class FeishuChannel(Channel):
                 open_id = sender_id.get("open_id", "")
             open_id = open_id or ""
 
-            if self._allow_users and open_id not in self._allow_users:
-                return
-
             chat_type = msg.chat_type or "p2p"
             chat_id = msg.chat_id or open_id
 
+            # Log all incoming messages for debugging
+            logger.info(
+                "feishu.incoming chat_type={} chat_id={} sender={} has_mentions={}",
+                chat_type,
+                chat_id,
+                open_id,
+                bool(msg.mentions),
+            )
+
+            if self._allow_users and open_id not in self._allow_users:
+                logger.debug("feishu.skip: user {} not in allowlist", open_id)
+                return
+
             # Filter by allowed chats
             if self._allow_chats and chat_id not in self._allow_chats:
+                logger.debug("feishu.skip: chat {} not in allowlist", chat_id)
                 return
 
             # DEBUG: Log mentions for group chat to help identify bot open_id
@@ -240,14 +245,20 @@ class FeishuChannel(Channel):
             is_active = self._is_active(chat_type, text, mentions, msg.parent_id)
 
             if not is_active:
-                logger.debug(
+                logger.info(
                     "feishu.inactive chat_type={} text={} mentions={} bot_open_id={}",
                     chat_type,
-                    text[:50],
+                    text[:50] if text else "",
                     mentions,
                     self._bot_open_id,
                 )
                 return
+
+            logger.info(
+                "feishu.active chat_type={} text={}",
+                chat_type,
+                text[:50] if text else "",
+            )
 
             # Store for reply
             root_id = msg.root_id or msg.message_id
