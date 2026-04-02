@@ -82,7 +82,7 @@ class FeishuChannel(Channel):
         encrypt_key = os.environ.get("BUB_FEISHU_ENCRYPT_KEY", "")
         verification_token = os.environ.get("BUB_FEISHU_VERIFICATION_TOKEN", "")
         handler = (
-            lark.EventDispatcherHandler.builder(encrypt_key, verification_token)
+            lark.EventDispatcherHandler.builder(verification_token, encrypt_key)
             .register_p2_im_message_receive_v1(self._on_message)
             .build()
         )
@@ -95,9 +95,10 @@ class FeishuChannel(Channel):
 
         def run_ws():
             try:
+                logger.info("feishu.ws starting...")
                 ws_client.start()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.error(f"feishu.ws error: {e}")
 
         self._ws_thread = threading.Thread(target=run_ws, daemon=True)
         self._ws_thread.start()
