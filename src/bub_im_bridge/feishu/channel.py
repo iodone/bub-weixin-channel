@@ -236,7 +236,7 @@ class FeishuChannel(Channel):
                 ensure_ascii=False,
             ),
             is_active=True,
-            context={"feishu_root_id": message.get("root_id") or message["message_id"]},
+            context={"feishu_root_id": message["message_id"]},
         )
         await self._on_receive(inbound)
 
