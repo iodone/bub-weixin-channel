@@ -23,6 +23,8 @@ from bub.channels.base import Channel
 from bub.channels.message import ChannelMessage
 from bub.types import MessageHandler
 
+from bub_im_bridge.feishu.feishu_prompts import FEISHU_OUTPUT_INSTRUCTION
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -345,7 +347,7 @@ class FeishuChannel(Channel):
             return
 
         payload = {
-            "message": message.text,
+            "message": message.text + FEISHU_OUTPUT_INSTRUCTION,
             "message_id": message.message_id,
             "chat_type": message.chat_type,
             "sender_id": message.sender_open_id or "",
@@ -375,22 +377,19 @@ class FeishuChannel(Channel):
         if not text:
             return
 
-        content_json = json.dumps(
-            {"zh_cn": {"title": "", "content": [[{"tag": "md", "text": text}]]}},
-            ensure_ascii=False,
-        )
+        msg_type, content_json = _build_outbound_content(text)
 
         reply_to = self._last_message_id.get(chat_id)
         if reply_to:
-            self._reply_message(reply_to, content_json)
+            self._reply_message(reply_to, msg_type, content_json)
         else:
             logger.warning(
                 "feishu.send no message_id to reply, sending as new message chat_id={}",
                 chat_id,
             )
-            self._create_message(chat_id, content_json)
+            self._create_message(chat_id, msg_type, content_json)
 
-    def _reply_message(self, message_id: str, content_json: str) -> None:
+    def _reply_message(self, message_id: str, msg_type: str, content_json: str) -> None:
         assert self._api_client is not None
         req = (
             ReplyMessageRequest.builder()
@@ -398,7 +397,7 @@ class FeishuChannel(Channel):
             .request_body(
                 ReplyMessageRequestBody.builder()
                 .content(content_json)
-                .msg_type("post")
+                .msg_type(msg_type)
                 .build()
             )
             .build()
@@ -412,7 +411,7 @@ class FeishuChannel(Channel):
                 message_id,
             )
 
-    def _create_message(self, chat_id: str, content_json: str) -> None:
+    def _create_message(self, chat_id: str, msg_type: str, content_json: str) -> None:
         assert self._api_client is not None
         req = (
             CreateMessageRequest.builder()
@@ -420,7 +419,7 @@ class FeishuChannel(Channel):
             .request_body(
                 CreateMessageRequestBody.builder()
                 .receive_id(chat_id)
-                .msg_type("post")
+                .msg_type(msg_type)
                 .content(content_json)
                 .build()
             )
@@ -530,3 +529,14 @@ def _extract_outbound_text(message: ChannelMessage) -> str:
             if isinstance(text, str) and text.strip():
                 return text
     return content.strip() if isinstance(content, str) else ""
+
+
+def _build_outbound_content(text: str) -> tuple[str, str]:
+    """Build ``(msg_type, content_json)`` for a Feishu outbound message.
+
+    Always uses ``interactive`` card with ``markdown`` element.
+    All messages follow Feishu card markdown syntax as specified in
+    FEISHU_OUTPUT_INSTRUCTION injected into user prompts.
+    """
+    card = {"elements": [{"tag": "markdown", "content": text}]}
+    return "interactive", json.dumps(card, ensure_ascii=False)
