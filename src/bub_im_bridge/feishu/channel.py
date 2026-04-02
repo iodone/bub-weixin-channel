@@ -44,6 +44,11 @@ class FeishuChannel(Channel):
             for u in os.environ.get("BUB_FEISHU_ALLOW_USERS", "").split(",")
             if u.strip()
         }
+        self._allow_chats = {
+            c.strip()
+            for c in os.environ.get("BUB_FEISHU_ALLOW_CHATS", "").split(",")
+            if c.strip()
+        }
         self._bot_open_id = os.environ.get("BUB_FEISHU_BOT_OPEN_ID", "")
         self._api_client: lark.Client | None = None
         self._ws_thread: threading.Thread | None = None
@@ -59,8 +64,9 @@ class FeishuChannel(Channel):
             return
 
         logger.info(
-            "feishu.start allow_users_count={} bot_open_id={}",
+            "feishu.start allow_users_count={} allow_chats_count={} bot_open_id={}",
             len(self._allow_users),
+            len(self._allow_chats),
             self._bot_open_id or "(not set)",
         )
 
@@ -177,6 +183,10 @@ class FeishuChannel(Channel):
 
             chat_type = msg.chat_type or "p2p"
             chat_id = msg.chat_id or open_id
+
+            # Filter by allowed chats
+            if self._allow_chats and chat_id not in self._allow_chats:
+                return
 
             # DEBUG: Log mentions for group chat to help identify bot open_id
             if chat_type in ("group", "topic") and msg.mentions:
