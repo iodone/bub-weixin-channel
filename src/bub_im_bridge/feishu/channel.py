@@ -150,11 +150,12 @@ class FeishuChannel(Channel):
             if "bub" in name:
                 return True
 
-        # Reply to bot's message
+        # Reply to bot's message (check if parent_id exists in any chat's last_msg)
+        # Note: This is a simplified check. For full support, track bot's sent message IDs.
         if parent_id:
-            last = self._last_msg.get(chat_id := mentions[0].get("open_id", ""), {})
-            # Simplified: if parent_id matches last bot message, treat as active
-            # This requires tracking bot's sent message IDs
+            for chat_data in self._last_msg.values():
+                if chat_data.get("root_id") == parent_id:
+                    return True
 
         return False
 
@@ -176,6 +177,28 @@ class FeishuChannel(Channel):
 
             chat_type = msg.chat_type or "p2p"
             chat_id = msg.chat_id or open_id
+
+            # DEBUG: Log mentions for group chat to help identify bot open_id
+            if chat_type in ("group", "topic") and msg.mentions:
+                logger.info(
+                    "feishu.group_mentions chat_type={} chat_id={}", chat_type, chat_id
+                )
+                for i, m in enumerate(msg.mentions):
+                    m_id = getattr(m, "id", None)
+                    m_open_id = getattr(m_id, "open_id", None) if m_id else None
+                    m_user_id = getattr(m_id, "user_id", None) if m_id else None
+                    m_union_id = getattr(m_id, "union_id", None) if m_id else None
+                    m_name = getattr(m, "name", None)
+                    m_key = getattr(m, "key", None)
+                    logger.info(
+                        "  mention[{}]: name={} key={} open_id={} user_id={} union_id={}",
+                        i,
+                        m_name,
+                        m_key,
+                        m_open_id,
+                        m_user_id,
+                        m_union_id,
+                    )
 
             # Parse content
             msg_type = msg.message_type or "text"
@@ -207,6 +230,13 @@ class FeishuChannel(Channel):
             is_active = self._is_active(chat_type, text, mentions, msg.parent_id)
 
             if not is_active:
+                logger.debug(
+                    "feishu.inactive chat_type={} text={} mentions={} bot_open_id={}",
+                    chat_type,
+                    text[:50],
+                    mentions,
+                    self._bot_open_id,
+                )
                 return
 
             # Store for reply
