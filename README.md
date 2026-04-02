@@ -116,9 +116,21 @@ uv run bub gateway
 |--------|------|:----:|
 | `BUB_FEISHU_APP_ID` | 应用 App ID | ✅ |
 | `BUB_FEISHU_APP_SECRET` | 应用 App Secret | ✅ |
-| `BUB_FEISHU_ENCRYPT_KEY` | 事件加密密钥 | ❌ |
-| `BUB_FEISHU_VERIFICATION_TOKEN` | 验证 Token | ❌ |
+| `BUB_FEISHU_VERIFICATION_TOKEN` | Webhook 验证 Token（可选） | ❌ |
+| `BUB_FEISHU_ENCRYPT_KEY` | Webhook 事件加密密钥（可选） | ❌ |
 | `BUB_FEISHU_ALLOW_USERS` | 允许的用户 open_id，逗号分隔 | ❌ |
+| `BUB_FEISHU_ALLOW_CHATS` | 允许的 Chat ID，逗号分隔 | ❌ |
+| `BUB_FEISHU_BOT_OPEN_ID` | 机器人 open_id，用于群聊 @检测 | ❌ |
+
+> **获取机器人 open_id 的方式**：
+>
+> 方式一：启动服务后在群聊中 @机器人，查看日志输出的 `mentions.id.open_id`
+>
+> 方式二：通过 API 获取：
+> ```bash
+> curl -X GET "https://open.feishu.cn/open-apis/bot/v3/info/" \
+>   -H "Authorization: Bearer <tenant_access_token>"
+> ```
 
 ### Telegram
 
@@ -164,6 +176,11 @@ src/bub_im_bridge/
 - 检查是否启用了「长连接接收事件」
 - 确认订阅了 `im.message.receive_v1` 事件
 - 群聊需要 @机器人 才会触发
+
+**飞书群聊 @机器人 不响应？**
+- 需要配置 `BUB_FEISHU_BOT_OPEN_ID`（机器人 open_id）
+- 获取方式：在群聊中 @机器人，查看日志中的 `mentions.id.open_id`
+- 或使用 API：`GET /open-apis/bot/v3/info/`
 
 **Telegram 连接超时？**
 - 国内网络需要配置 `BUB_TELEGRAM_PROXY`
