@@ -150,67 +150,44 @@ class FeishuChannel(Channel):
             # Convert to dict for easier access
             payload = self._to_payload_dict(data)
 
-            # Log raw event for debugging
-            event = payload.get("event", {})
-            message = event.get("message", {})
-            chat_type = message.get("chat_type", "unknown")
+            # Log event type
             event_type = payload.get("header", {}).get("event_type", "unknown")
-
-            logger.info(
-                "feishu.event received: event_type={} chat_type={}",
-                event_type,
-                chat_type,
-            )
-
-            # Normalize event
-            message_data = self._normalize_event(payload)
-            if message_data is None:
-                logger.warning("feishu._on_message_event: normalized message is None")
-                return
-
-            logger.info(
-                "feishu.incoming chat_type={} chat_id={} sender={} has_mentions={} text={}",
-                message_data["chat_type"],
-                message_data["chat_id"],
-                message_data["sender_open_id"],
-                len(message_data["mentions"]),
-                message_data["text"][:50] if message_data["text"] else "",
-            )
+            logger.debug(f"feishu.event received: {event_type}")
 
             # Normalize event
             message = self._normalize_event(payload)
             if message is None:
-                logger.warning("feishu._on_message_event: normalized message is None")
                 return
 
-            logger.info(
-                "feishu.incoming chat_type={} chat_id={} sender={} has_mentions={} text={}",
-                message["chat_type"],
-                message["chat_id"],
-                message["sender_open_id"],
-                len(message["mentions"]),
-                message["text"][:50] if message["text"] else "",
-            )
+            chat_type = message["chat_type"]
+
+            # Log incoming message (only for group chats)
+            if chat_type != "p2p":
+                logger.info(
+                    "feishu.incoming chat_type={} chat_id={} sender={} mentions={} text={}",
+                    chat_type,
+                    message["chat_id"],
+                    message["sender_open_id"],
+                    len(message["mentions"]),
+                    message["text"][:50] if message["text"] else "",
+                )
 
             # Check permissions
             if not self._is_allowed(message):
-                logger.info("feishu.skip: not allowed")
                 return
 
             if not message["text"].strip():
-                logger.debug("feishu.skip: empty text")
                 return
 
             # Check if should be active
             is_active = self._is_active(message)
 
             if not is_active:
-                logger.info(
-                    "feishu.inactive chat_type={} text={} mentions={} bot_open_id={}",
-                    message["chat_type"],
+                logger.debug(
+                    "feishu.inactive chat_type={} text={} mentions={}",
+                    chat_type,
                     message["text"][:50],
                     message["mentions"],
-                    self._bot_open_id,
                 )
                 return
 
@@ -219,10 +196,15 @@ class FeishuChannel(Channel):
                 logger.warning("feishu.inbound no main loop")
                 return
 
-            logger.info("feishu.active dispatching message")
-            asyncio.run_coroutine_threadsafe(
+            logger.debug("feishu.active dispatching message")
+            future = asyncio.run_coroutine_threadsafe(
                 self._dispatch_message(message), self._main_loop
             )
+            # Wait for result to ensure message is processed
+            try:
+                future.result(timeout=5)
+            except Exception as e:
+                logger.error(f"feishu.dispatch error: {e}")
 
         except Exception as e:
             logger.exception(f"feishu._on_message_event error: {e}")
