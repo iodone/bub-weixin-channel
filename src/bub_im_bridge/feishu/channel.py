@@ -352,6 +352,13 @@ class FeishuChannel(Channel):
         raw_content = str(message.get("content") or "")
         text = _normalize_text(message_type, raw_content)
 
+        # Replace mention keys with names (e.g., @_user_1 -> @username)
+        for mention in mentions:
+            key = mention.get("key")
+            name = mention.get("name")
+            if key and name:
+                text = text.replace(key, f"@{name}")
+
         result = {
             "message_id": str(message.get("message_id") or ""),
             "chat_id": str(message.get("chat_id") or ""),
