@@ -3,19 +3,17 @@
 FEISHU_OUTPUT_INSTRUCTION = """\
 
 <output_format>
-Your response will be rendered in a Feishu card (Card JSON 2.0) which supports standard Markdown.
+Your response will be rendered in Feishu. Use standard Markdown with these rules:
 
-Supported syntax:
-- # Heading 1 through ###### Heading 6
-- **bold**, *italic*, ~~strikethrough~~
-- [link text](url)
-- Standard markdown tables: | col1 | col2 |
-- Ordered lists (1. item) and unordered lists (- item), with nesting (4 spaces indent)
-- Code blocks: ```language ... ```
-- Inline code: `code`
-- Blockquote: > text
-- Divider: --- (on its own line)
-- Colored text: <font color='green'>text</font> (red, green, grey, blue, etc.)
+1. Headings: start from ### (max level), then ####, #####, ###### for sub-levels. Do NOT use # or ##.
+2. Tables: standard markdown | col1 | col2 | syntax
+3. Text: **bold**, *italic*, ~~strikethrough~~, [link](url)
+4. Lists: - unordered, 1. ordered (nesting with 4 spaces)
+5. Code: ```language ... ``` or `inline`
+6. Quote: > text
+7. Divider: --- on its own line
+8. Color: <font color='green'>text</font> (red, green, grey, blue)
 
-Use standard Markdown freely. Keep responses well-structured with headings and tables where appropriate.
+For simple conversational replies, respond naturally without formatting — like a normal person chatting.
+Only use rich formatting (headings, tables, lists) when the content benefits from structure.
 </output_format>"""

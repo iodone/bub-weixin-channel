@@ -547,13 +547,30 @@ def _extract_outbound_text(message: ChannelMessage) -> str:
     return content.strip() if isinstance(content, str) else ""
 
 
+import re
+
+
+# Patterns that indicate rich content needing card rendering
+_RICH_CONTENT_RE = re.compile(
+    r"[#|*~`>\-]"  # headings, tables, bold, strikethrough, code, quote, list, hr
+    r"|<font\b"  # colored text
+)
+
+
+def _needs_card(text: str) -> bool:
+    """Return True if text contains markdown formatting that needs card rendering."""
+    return bool(_RICH_CONTENT_RE.search(text))
+
+
 def _build_outbound_content(text: str) -> tuple[str, str]:
     """Build ``(msg_type, content_json)`` for a Feishu outbound message.
 
-    Uses Card JSON 2.0 structure (``schema: "2.0"``) which supports full
-    standard Markdown syntax including headings, tables, lists, code blocks,
-    bold, italic, colored text, and dividers.
+    Simple plain text → ``text`` message (like a normal human reply).
+    Rich content (markdown formatting) → Card JSON 2.0 ``interactive`` message.
     """
+    if not _needs_card(text):
+        return "text", json.dumps({"text": text}, ensure_ascii=False)
+
     card: dict[str, Any] = {
         "schema": "2.0",
         "body": {"elements": [{"tag": "markdown", "content": text}]},
