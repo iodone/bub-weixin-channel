@@ -550,11 +550,13 @@ def _extract_outbound_text(message: ChannelMessage) -> str:
 def _build_outbound_content(text: str) -> tuple[str, str]:
     """Build ``(msg_type, content_json)`` for a Feishu outbound message.
 
-    Uses ``interactive`` card with ``markdown`` element.
-    Card structure: {"config": {...}, "elements": [{"tag": "markdown", "content": "..."}]}
+    Uses ``i18n_elements`` structure with ``lark_md`` tag for rich text.
+    Supports: **bold**, *italic*, ~~strikethrough~~, links, <font> tags.
+    Does NOT support: # headings, --- hr, standard markdown tables.
     """
     card = {
-        "config": {"wide_screen_mode": True},
-        "elements": [{"tag": "markdown", "content": text}],
+        "i18n_elements": {
+            "zh_cn": [{"tag": "div", "text": {"tag": "lark_md", "content": text}}]
+        }
     }
     return "interactive", json.dumps(card, ensure_ascii=False)
