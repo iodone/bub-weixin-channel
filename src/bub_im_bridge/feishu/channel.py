@@ -355,6 +355,7 @@ class FeishuChannel(Channel):
             "sender_name": message.sender_display,
             "create_time": _format_feishu_timestamp(message.create_time),
         }
+        local_time = _format_feishu_timestamp(message.create_time)
         await self._on_receive(
             ChannelMessage(
                 session_id=session_id,
@@ -362,6 +363,7 @@ class FeishuChannel(Channel):
                 chat_id=message.chat_id,
                 content=json.dumps(payload, ensure_ascii=False),
                 is_active=True,
+                context={"date": local_time} if local_time else {},
             )
         )
 
