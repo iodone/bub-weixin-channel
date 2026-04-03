@@ -8,6 +8,7 @@ import json
 import os
 import threading
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any, ClassVar
 
 import lark_oapi as lark
@@ -22,6 +23,8 @@ from loguru import logger
 from bub.channels.base import Channel
 from bub.channels.message import ChannelMessage
 from bub.types import MessageHandler
+
+from bub_im_bridge.feishu.feishu_prompts import FEISHU_OUTPUT_INSTRUCTION
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -345,12 +348,14 @@ class FeishuChannel(Channel):
             return
 
         payload = {
-            "message": message.text,
+            "message": message.text + FEISHU_OUTPUT_INSTRUCTION,
             "message_id": message.message_id,
             "chat_type": message.chat_type,
             "sender_id": message.sender_open_id or "",
             "sender_name": message.sender_display,
+            "create_time": _format_feishu_timestamp(message.create_time),
         }
+        local_time = _format_feishu_timestamp(message.create_time)
         await self._on_receive(
             ChannelMessage(
                 session_id=session_id,
@@ -358,6 +363,7 @@ class FeishuChannel(Channel):
                 chat_id=message.chat_id,
                 content=json.dumps(payload, ensure_ascii=False),
                 is_active=True,
+                context={"date": local_time} if local_time else {},
             )
         )
 
@@ -375,30 +381,33 @@ class FeishuChannel(Channel):
         if not text:
             return
 
-        content_json = json.dumps(
-            {"zh_cn": {"title": "", "content": [[{"tag": "md", "text": text}]]}},
-            ensure_ascii=False,
-        )
+        msg_type, content_json = _build_outbound_content(text)
 
         reply_to = self._last_message_id.get(chat_id)
         if reply_to:
-            self._reply_message(reply_to, content_json)
+            self._reply_message(reply_to, msg_type, content_json)
         else:
             logger.warning(
                 "feishu.send no message_id to reply, sending as new message chat_id={}",
                 chat_id,
             )
-            self._create_message(chat_id, content_json)
+            self._create_message(chat_id, msg_type, content_json)
 
-    def _reply_message(self, message_id: str, content_json: str) -> None:
+    def _reply_message(self, message_id: str, msg_type: str, content_json: str) -> None:
         assert self._api_client is not None
+        logger.info(
+            "feishu.reply_message message_id={} msg_type={} content_preview={}",
+            message_id,
+            msg_type,
+            content_json[:200],
+        )
         req = (
             ReplyMessageRequest.builder()
             .message_id(message_id)
             .request_body(
                 ReplyMessageRequestBody.builder()
                 .content(content_json)
-                .msg_type("post")
+                .msg_type(msg_type)
                 .build()
             )
             .build()
@@ -411,16 +420,24 @@ class FeishuChannel(Channel):
                 resp.msg,
                 message_id,
             )
+        else:
+            logger.info("feishu.reply success message_id={}", message_id)
 
-    def _create_message(self, chat_id: str, content_json: str) -> None:
+    def _create_message(self, chat_id: str, msg_type: str, content_json: str) -> None:
         assert self._api_client is not None
+        logger.info(
+            "feishu.create_message chat_id={} msg_type={} content_preview={}",
+            chat_id,
+            msg_type,
+            content_json[:200],
+        )
         req = (
             CreateMessageRequest.builder()
             .receive_id_type("chat_id")
             .request_body(
                 CreateMessageRequestBody.builder()
                 .receive_id(chat_id)
-                .msg_type("post")
+                .msg_type(msg_type)
                 .content(content_json)
                 .build()
             )
@@ -434,6 +451,8 @@ class FeishuChannel(Channel):
                 resp.msg,
                 chat_id,
             )
+        else:
+            logger.info("feishu.create success chat_id={}", chat_id)
 
 
 # ---------------------------------------------------------------------------
@@ -530,3 +549,46 @@ def _extract_outbound_text(message: ChannelMessage) -> str:
             if isinstance(text, str) and text.strip():
                 return text
     return content.strip() if isinstance(content, str) else ""
+
+
+import re
+
+
+def _format_feishu_timestamp(ts: str | None) -> str:
+    """Convert Feishu millisecond timestamp to local time string."""
+    if not ts:
+        return ""
+    try:
+        epoch_ms = int(ts)
+        dt = datetime.fromtimestamp(epoch_ms / 1000).astimezone()
+        return dt.strftime("%Y-%m-%d %H:%M:%S")
+    except (ValueError, OSError):
+        return ts or ""
+
+
+# Patterns that indicate rich content needing card rendering
+_RICH_CONTENT_RE = re.compile(
+    r"[#|*~`>\-]"  # headings, tables, bold, strikethrough, code, quote, list, hr
+    r"|<font\b"  # colored text
+)
+
+
+def _needs_card(text: str) -> bool:
+    """Return True if text contains markdown formatting that needs card rendering."""
+    return bool(_RICH_CONTENT_RE.search(text))
+
+
+def _build_outbound_content(text: str) -> tuple[str, str]:
+    """Build ``(msg_type, content_json)`` for a Feishu outbound message.
+
+    Simple plain text → ``text`` message (like a normal human reply).
+    Rich content (markdown formatting) → Card JSON 2.0 ``interactive`` message.
+    """
+    if not _needs_card(text):
+        return "text", json.dumps({"text": text}, ensure_ascii=False)
+
+    card: dict[str, Any] = {
+        "schema": "2.0",
+        "body": {"elements": [{"tag": "markdown", "content": text}]},
+    }
+    return "interactive", json.dumps(card, ensure_ascii=False)
