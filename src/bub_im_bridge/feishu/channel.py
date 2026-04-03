@@ -8,6 +8,7 @@ import json
 import os
 import threading
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any, ClassVar
 
 import lark_oapi as lark
@@ -352,6 +353,7 @@ class FeishuChannel(Channel):
             "chat_type": message.chat_type,
             "sender_id": message.sender_open_id or "",
             "sender_name": message.sender_display,
+            "create_time": _format_feishu_timestamp(message.create_time),
         }
         await self._on_receive(
             ChannelMessage(
@@ -548,6 +550,18 @@ def _extract_outbound_text(message: ChannelMessage) -> str:
 
 
 import re
+
+
+def _format_feishu_timestamp(ts: str | None) -> str:
+    """Convert Feishu millisecond timestamp to local time string."""
+    if not ts:
+        return ""
+    try:
+        epoch_ms = int(ts)
+        dt = datetime.fromtimestamp(epoch_ms / 1000).astimezone()
+        return dt.strftime("%Y-%m-%d %H:%M:%S")
+    except (ValueError, OSError):
+        return ts or ""
 
 
 # Patterns that indicate rich content needing card rendering
