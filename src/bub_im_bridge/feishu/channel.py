@@ -391,6 +391,12 @@ class FeishuChannel(Channel):
 
     def _reply_message(self, message_id: str, msg_type: str, content_json: str) -> None:
         assert self._api_client is not None
+        logger.info(
+            "feishu.reply_message message_id={} msg_type={} content_preview={}",
+            message_id,
+            msg_type,
+            content_json[:200],
+        )
         req = (
             ReplyMessageRequest.builder()
             .message_id(message_id)
@@ -410,9 +416,17 @@ class FeishuChannel(Channel):
                 resp.msg,
                 message_id,
             )
+        else:
+            logger.info("feishu.reply success message_id={}", message_id)
 
     def _create_message(self, chat_id: str, msg_type: str, content_json: str) -> None:
         assert self._api_client is not None
+        logger.info(
+            "feishu.create_message chat_id={} msg_type={} content_preview={}",
+            chat_id,
+            msg_type,
+            content_json[:200],
+        )
         req = (
             CreateMessageRequest.builder()
             .receive_id_type("chat_id")
@@ -433,6 +447,8 @@ class FeishuChannel(Channel):
                 resp.msg,
                 chat_id,
             )
+        else:
+            logger.info("feishu.create success chat_id={}", chat_id)
 
 
 # ---------------------------------------------------------------------------
