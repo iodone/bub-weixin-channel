@@ -3,26 +3,19 @@
 FEISHU_OUTPUT_INSTRUCTION = """\
 
 <output_format>
-Your response will be rendered in Feishu using lark_md format. Follow these rules strictly:
+Your response will be rendered in a Feishu card (Card JSON 2.0) which supports standard Markdown.
 
-SUPPORTED:
+Supported syntax:
+- # Heading 1 through ###### Heading 6
 - **bold**, *italic*, ~~strikethrough~~
 - [link text](url)
-- <font color='blue' size='4'>Large title text</font>
-- <font color='grey' size='3'>Subtitle text</font>
-- <font color='red'>Red text</font>, <font color='green'>Green text</font>
-- Line breaks: use \\n\\n for paragraphs
+- Standard markdown tables: | col1 | col2 |
+- Ordered lists (1. item) and unordered lists (- item), with nesting (4 spaces indent)
+- Code blocks: ```language ... ```
+- Inline code: `code`
+- Blockquote: > text
+- Divider: --- (on its own line)
+- Colored text: <font color='green'>text</font> (red, green, grey, blue, etc.)
 
-NOT SUPPORTED (will show as plain text):
-- # Headings → use <font color='blue' size='4'>Title</font> instead
-- --- Horizontal rules
-- - Lists → use • or numbered text instead
-- ``` Code blocks → use plain text instead
-- | Tables | → describe data in bullet points or use text layout
-
-For titles: <font color='blue' size='4'>Main Title</font>
-For subtitles: <font color='grey' size='3'>Subtitle</font>
-For emphasis: **bold text**
-
-Keep responses simple. Use font tags for structure, bold for emphasis, and plain text for data.
+Use standard Markdown freely. Keep responses well-structured with headings and tables where appropriate.
 </output_format>"""

@@ -23,3 +23,6 @@ packages = ["src/bub_im_bridge"]
 
 [tool.hatch.metadata]
 allow-direct-references = true
+
+[tool.uv.sources]
+bub = { path = "/Users/mi/work/github/bub", editable = true }

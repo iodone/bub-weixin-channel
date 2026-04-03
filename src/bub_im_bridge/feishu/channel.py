@@ -550,13 +550,12 @@ def _extract_outbound_text(message: ChannelMessage) -> str:
 def _build_outbound_content(text: str) -> tuple[str, str]:
     """Build ``(msg_type, content_json)`` for a Feishu outbound message.
 
-    Uses ``i18n_elements`` structure with ``lark_md`` tag for rich text.
-    Supports: **bold**, *italic*, ~~strikethrough~~, links, <font> tags.
-    Does NOT support: # headings, --- hr, standard markdown tables.
+    Uses Card JSON 2.0 structure (``schema: "2.0"``) which supports full
+    standard Markdown syntax including headings, tables, lists, code blocks,
+    bold, italic, colored text, and dividers.
     """
-    card = {
-        "i18n_elements": {
-            "zh_cn": [{"tag": "div", "text": {"tag": "lark_md", "content": text}}]
-        }
+    card: dict[str, Any] = {
+        "schema": "2.0",
+        "body": {"elements": [{"tag": "markdown", "content": text}]},
     }
     return "interactive", json.dumps(card, ensure_ascii=False)
