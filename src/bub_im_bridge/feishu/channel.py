@@ -550,9 +550,11 @@ def _extract_outbound_text(message: ChannelMessage) -> str:
 def _build_outbound_content(text: str) -> tuple[str, str]:
     """Build ``(msg_type, content_json)`` for a Feishu outbound message.
 
-    Always uses ``interactive`` card with ``markdown`` element.
-    All messages follow Feishu card markdown syntax as specified in
-    FEISHU_OUTPUT_INSTRUCTION injected into user prompts.
+    Uses ``interactive`` card with ``markdown`` element.
+    Card structure: {"config": {...}, "elements": [{"tag": "markdown", "content": "..."}]}
     """
-    card = {"elements": [{"tag": "markdown", "content": text}]}
+    card = {
+        "config": {"wide_screen_mode": True},
+        "elements": [{"tag": "markdown", "content": text}],
+    }
     return "interactive", json.dumps(card, ensure_ascii=False)
