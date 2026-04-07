@@ -306,7 +306,7 @@ class FeishuChannel(Channel):
 
         text = message.text.strip()
 
-        if text.startswith(","):
+        if text.startswith(",") or text.startswith("/"):
             return True, "command"
         if "bub" in text.lower():
             return True, "bub_keyword"
@@ -334,11 +334,17 @@ class FeishuChannel(Channel):
         # Remember for reply
         self._last_message_id[message.chat_id] = message.message_id
 
-        if message.text.strip().startswith(","):
+        text = message.text.strip()
+
+        # Normalize slash commands to comma commands: /tape.handoff -> ,tape.handoff
+        if text.startswith("/"):
+            text = "," + text[1:]
+
+        if text.startswith(","):
             await self._on_receive(
                 ChannelMessage(
                     session_id=session_id,
-                    content=message.text.strip(),
+                    content=text,
                     channel=self.name,
                     chat_id=message.chat_id,
                     kind="command",
