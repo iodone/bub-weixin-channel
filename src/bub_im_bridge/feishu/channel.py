@@ -347,11 +347,6 @@ class FeishuChannel(Channel):
         if text.startswith("/"):
             text = "," + text[1:]
 
-        # Handle history command: ,history 1d or /history 7d
-        if text.startswith(",history"):
-            await self._handle_history_command(message, text)
-            return
-
         if text.startswith(","):
             await self._on_receive(
                 ChannelMessage(
@@ -383,6 +378,14 @@ class FeishuChannel(Channel):
             payload["quoted_message"] = quoted_message
 
         local_time = _format_feishu_timestamp(message.create_time)
+
+        # Register channel instance and chat_id in context for tool access
+        context: dict[str, Any] = {}
+        if local_time:
+            context["date"] = local_time
+        context["_feishu_channel"] = self
+        context["_feishu_chat_id"] = message.chat_id
+
         await self._on_receive(
             ChannelMessage(
                 session_id=session_id,
@@ -390,52 +393,7 @@ class FeishuChannel(Channel):
                 chat_id=message.chat_id,
                 content=json.dumps(payload, ensure_ascii=False),
                 is_active=True,
-                context={"date": local_time} if local_time else {},
-            )
-        )
-
-    async def _handle_history_command(
-        self, message: FeishuInboundMessage, text: str
-    ) -> None:
-        """Handle ,history [time_range] command to fetch chat history.
-
-        Examples:
-            ,history         - fetch last 20 messages
-            ,history 1d      - fetch messages from last 1 day
-            ,history 7d      - fetch messages from last 7 days
-        """
-        session_id = f"feishu:{message.chat_id}"
-        self._last_message_id[message.chat_id] = message.message_id
-
-        # Parse time range from command
-        parts = text.split()
-        time_range = parts[1] if len(parts) > 1 else None
-
-        # Fetch history
-        history = await self._fetch_chat_history(
-            message.chat_id, limit=20, start_time=time_range
-        )
-
-        if not history:
-            response_text = "No messages found for the specified time range."
-        else:
-            # Format history for display
-            lines = [f"Chat history ({len(history)} messages):\n"]
-            for msg in history:
-                sender = msg.get("sender", "unknown")
-                content = msg.get("content", "")
-                create_time = msg.get("create_time", "")
-                lines.append(f"[{create_time}] {sender}: {content}")
-            response_text = "\n".join(lines)
-
-        # Send response
-        await self.send(
-            ChannelMessage(
-                session_id=session_id,
-                channel=self.name,
-                chat_id=message.chat_id,
-                content=response_text,
-                is_active=True,
+                context=context,
             )
         )
 
