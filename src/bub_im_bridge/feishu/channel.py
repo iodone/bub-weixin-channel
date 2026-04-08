@@ -347,6 +347,11 @@ class FeishuChannel(Channel):
         if text.startswith("/"):
             text = "," + text[1:]
 
+        # Handle history command: ,history 1d or /history 7d
+        if text.startswith(",history"):
+            await self._handle_history_command(message, text)
+            return
+
         if text.startswith(","):
             await self._on_receive(
                 ChannelMessage(
@@ -365,9 +370,6 @@ class FeishuChannel(Channel):
         if message.parent_id:
             quoted_message = await self._fetch_message_content(message.parent_id)
 
-        # Fetch recent chat history for context
-        chat_history = await self._fetch_chat_history(message.chat_id, limit=10)
-
         payload: dict[str, Any] = {
             "message": message.text + FEISHU_OUTPUT_INSTRUCTION,
             "message_id": message.message_id,
@@ -380,9 +382,6 @@ class FeishuChannel(Channel):
         if quoted_message:
             payload["quoted_message"] = quoted_message
 
-        if chat_history:
-            payload["chat_history"] = chat_history
-
         local_time = _format_feishu_timestamp(message.create_time)
         await self._on_receive(
             ChannelMessage(
@@ -392,6 +391,51 @@ class FeishuChannel(Channel):
                 content=json.dumps(payload, ensure_ascii=False),
                 is_active=True,
                 context={"date": local_time} if local_time else {},
+            )
+        )
+
+    async def _handle_history_command(
+        self, message: FeishuInboundMessage, text: str
+    ) -> None:
+        """Handle ,history [time_range] command to fetch chat history.
+
+        Examples:
+            ,history         - fetch last 20 messages
+            ,history 1d      - fetch messages from last 1 day
+            ,history 7d      - fetch messages from last 7 days
+        """
+        session_id = f"feishu:{message.chat_id}"
+        self._last_message_id[message.chat_id] = message.message_id
+
+        # Parse time range from command
+        parts = text.split()
+        time_range = parts[1] if len(parts) > 1 else None
+
+        # Fetch history
+        history = await self._fetch_chat_history(
+            message.chat_id, limit=20, start_time=time_range
+        )
+
+        if not history:
+            response_text = "No messages found for the specified time range."
+        else:
+            # Format history for display
+            lines = [f"Chat history ({len(history)} messages):\n"]
+            for msg in history:
+                sender = msg.get("sender", "unknown")
+                content = msg.get("content", "")
+                create_time = msg.get("create_time", "")
+                lines.append(f"[{create_time}] {sender}: {content}")
+            response_text = "\n".join(lines)
+
+        # Send response
+        await self.send(
+            ChannelMessage(
+                session_id=session_id,
+                channel=self.name,
+                chat_id=message.chat_id,
+                content=response_text,
+                is_active=True,
             )
         )
 
@@ -441,22 +485,42 @@ class FeishuChannel(Channel):
         return None
 
     async def _fetch_chat_history(
-        self, chat_id: str, limit: int = 10
+        self,
+        chat_id: str,
+        limit: int = 20,
+        start_time: str | None = None,
+        end_time: str | None = None,
     ) -> list[dict[str, str]] | None:
-        """Fetch recent chat history for context."""
+        """Fetch chat history with optional time range.
+
+        Args:
+            chat_id: The chat ID to fetch history from.
+            limit: Maximum number of messages to return (max 50).
+            start_time: Start time in ISO format or relative like "1d", "7d".
+            end_time: End time in ISO format (defaults to now).
+        """
         if self._api_client is None or not chat_id:
             return None
 
         try:
             from lark_oapi.api.im.v1 import ListMessageRequest
 
-            req = (
+            builder = (
                 ListMessageRequest.builder()
                 .container_id_type("chat")
                 .container_id(chat_id)
                 .page_size(min(limit, 50))
-                .build()
             )
+
+            # Add time range filters if provided
+            start_ts = _parse_time_range(start_time)
+            end_ts = _parse_time_range(end_time)
+            if start_ts:
+                builder.start_time(str(int(start_ts)))
+            if end_ts:
+                builder.end_time(str(int(end_ts)))
+
+            req = builder.build()
             im_api = getattr(self._api_client, "im", None)
             if not im_api:
                 return None
@@ -694,6 +758,48 @@ def _extract_outbound_text(message: ChannelMessage) -> str:
 
 
 import re
+import time
+
+
+def _parse_time_range(time_str: str | None) -> float | None:
+    """Parse time range string to Unix timestamp (seconds).
+
+    Supports:
+    - Relative: "1d", "7d", "30d" (days)
+    - ISO format: "2024-01-01", "2024-01-01T10:00:00"
+    - Unix timestamp (seconds or milliseconds)
+    """
+    if not time_str:
+        return None
+
+    time_str = time_str.strip()
+
+    # Relative time (e.g., "1d", "7d", "30d")
+    if time_str.endswith("d"):
+        try:
+            days = int(time_str[:-1])
+            return time.time() - (days * 86400)
+        except ValueError:
+            pass
+
+    # Try parsing as integer (Unix timestamp)
+    try:
+        ts = int(time_str)
+        # Detect milliseconds (13 digits) vs seconds (10 digits)
+        if ts > 1e12:
+            ts = ts / 1000
+        return float(ts)
+    except ValueError:
+        pass
+
+    # Try ISO format
+    try:
+        dt = datetime.fromisoformat(time_str)
+        return dt.timestamp()
+    except ValueError:
+        pass
+
+    return None
 
 
 def _format_feishu_timestamp(ts: str | int | None) -> str:
