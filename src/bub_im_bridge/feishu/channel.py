@@ -6,7 +6,9 @@ import asyncio
 import contextlib
 import json
 import os
+import re
 import threading
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, ClassVar
@@ -154,10 +156,10 @@ class FeishuChannel(Channel):
 
         self._loop = asyncio.get_running_loop()
 
-        # Register this channel instance globally for tool access
-        from bub_im_bridge.feishu import tools as feishu_tools
+        # Register this channel instance for tool access
+        from bub_im_bridge.feishu.tools import registry
 
-        feishu_tools._channel_instance = self
+        registry.set(self)
 
         logger.info(
             "feishu.start app_id={}... allow_users={} allow_chats={} bot_open_id={}",
@@ -368,7 +370,7 @@ class FeishuChannel(Channel):
         # Fetch quoted message content if this is a reply
         quoted_message = None
         if message.parent_id:
-            quoted_message = await self._fetch_message_content(message.parent_id)
+            quoted_message = await self.fetch_message_content(message.parent_id)
 
         payload: dict[str, Any] = {
             "message": message.text + FEISHU_OUTPUT_INSTRUCTION,
@@ -404,25 +406,25 @@ class FeishuChannel(Channel):
 
     # -- message fetching ----------------------------------------------------
 
-    async def _fetch_message_content(self, message_id: str) -> str | None:
-        """Fetch the content of a message by its ID."""
-        if self._api_client is None or not message_id:
+    def _get_message_api(self) -> Any | None:
+        """Return the ``im.v1.message`` API handle, or ``None``."""
+        if self._api_client is None:
+            return None
+        im = getattr(self._api_client, "im", None)
+        v1 = getattr(im, "v1", None) if im else None
+        return getattr(v1, "message", None) if v1 else None
+
+    async def fetch_message_content(self, message_id: str) -> str | None:
+        """Fetch the text content of a single message by ID."""
+        api = self._get_message_api()
+        if api is None or not message_id:
             return None
 
         try:
             from lark_oapi.api.im.v1 import GetMessageRequest
 
             req = GetMessageRequest.builder().message_id(message_id).build()
-            im_api = getattr(self._api_client, "im", None)
-            if not im_api:
-                return None
-            v1_api = getattr(im_api, "v1", None)
-            if not v1_api:
-                return None
-            message_api = getattr(v1_api, "message", None)
-            if not message_api:
-                return None
-            resp = message_api.get(req)
+            resp = api.get(req)
 
             if not resp.success():
                 logger.warning(
@@ -433,57 +435,41 @@ class FeishuChannel(Channel):
                 )
                 return None
 
-            msg = getattr(resp, "data", None)
-            if msg:
-                body = getattr(msg, "body", None)
-                if body:
-                    content = getattr(body, "content", None)
-                    if content:
-                        msg_type = getattr(msg, "msg_type", None) or "text"
-                        return _normalize_text(msg_type, content)
+            data = getattr(resp, "data", None)
+            if data:
+                body = getattr(data, "body", None)
+                content = getattr(body, "content", None) if body else None
+                if content:
+                    msg_type = getattr(data, "msg_type", None) or "text"
+                    return _normalize_text(msg_type, content)
 
         except Exception:
             logger.exception("feishu.fetch_message error message_id={}", message_id)
 
         return None
 
-    async def _fetch_chat_history(
+    async def fetch_chat_history(
         self,
         chat_id: str,
         start_time: str | None = None,
         end_time: str | None = None,
-    ) -> list[dict[str, str]] | None:
-        """Fetch chat history with optional time range.
+    ) -> list[dict[str, str]]:
+        """Fetch chat messages, optionally filtered by time range.
 
-        Uses pagination to retrieve all messages within the time range.
-
-        Args:
-            chat_id: The chat ID to fetch history from.
-            start_time: Relative like "1d", "7d" or ISO format.
-            end_time: End time (defaults to now).
+        Returns all pages of results. Uses ``_parse_time_range`` to convert
+        human-friendly strings like ``"1d"`` or ``"7d"`` into timestamps.
         """
-        if self._api_client is None or not chat_id:
-            return None
+        api = self._get_message_api()
+        if api is None or not chat_id:
+            return []
+
+        start_ts = _parse_time_range(start_time)
+        end_ts = _parse_time_range(end_time)
+        history: list[dict[str, str]] = []
+        page_token: str | None = None
 
         try:
             from lark_oapi.api.im.v1 import ListMessageRequest
-
-            im_api = getattr(self._api_client, "im", None)
-            if not im_api:
-                return None
-            v1_api = getattr(im_api, "v1", None)
-            if not v1_api:
-                return None
-            message_api = getattr(v1_api, "message", None)
-            if not message_api:
-                return None
-
-            # Add time range filters if provided
-            start_ts = _parse_time_range(start_time)
-            end_ts = _parse_time_range(end_time)
-
-            history: list[dict[str, str]] = []
-            page_token: str | None = None
 
             while True:
                 builder = (
@@ -499,8 +485,7 @@ class FeishuChannel(Channel):
                 if page_token:
                     builder.page_token(page_token)
 
-                req = builder.build()
-                resp = message_api.list(req)
+                resp = api.list(builder.build())
 
                 if not resp.success():
                     logger.warning(
@@ -512,42 +497,35 @@ class FeishuChannel(Channel):
                     break
 
                 data = getattr(resp, "data", None)
-                items = getattr(data, "items", None) if data else None
-                if items:
-                    for item in items:
-                        body = getattr(item, "body", None)
-                        if body:
-                            content = getattr(body, "content", None)
-                            if content:
-                                msg_type = getattr(item, "msg_type", None) or "text"
-                                normalized = _normalize_text(msg_type, content)
-                                sender = getattr(item, "sender", None)
-                                sender_id = getattr(sender, "id", "") if sender else ""
-                                create_time = getattr(item, "create_time", None)
-                                history.append(
-                                    {
-                                        "message_id": getattr(item, "message_id", "")
-                                        or "",
-                                        "sender": sender_id or "",
-                                        "content": normalized,
-                                        "create_time": _format_feishu_timestamp(
-                                            create_time
-                                        ),
-                                    }
-                                )
+                for item in getattr(data, "items", None) or []:
+                    body = getattr(item, "body", None)
+                    content = getattr(body, "content", None) if body else None
+                    if not content:
+                        continue
+                    msg_type = getattr(item, "msg_type", None) or "text"
+                    sender = getattr(item, "sender", None)
+                    history.append(
+                        {
+                            "message_id": getattr(item, "message_id", "") or "",
+                            "sender": (getattr(sender, "id", "") or "")
+                            if sender
+                            else "",
+                            "content": _normalize_text(msg_type, content),
+                            "create_time": _format_feishu_timestamp(
+                                getattr(item, "create_time", None)
+                            ),
+                        }
+                    )
 
-                # Check for next page
                 has_more = getattr(data, "has_more", False) if data else False
                 page_token = getattr(data, "page_token", None) if data else None
                 if not has_more or not page_token:
                     break
 
-            return history if history else None
-
         except Exception:
             logger.exception("feishu.fetch_history error chat_id={}", chat_id)
 
-        return None
+        return history
 
     # -- outbound ------------------------------------------------------------
 
@@ -733,15 +711,11 @@ def _extract_outbound_text(message: ChannelMessage) -> str:
     return content.strip() if isinstance(content, str) else ""
 
 
-import re
-import time
-
-
 def _parse_time_range(time_str: str | None) -> float | None:
     """Parse time range string to Unix timestamp (seconds).
 
     Supports:
-    - Relative: "1d", "7d", "30d" (days)
+    - Relative: "3h" (hours), "1d", "7d", "30d" (days)
     - ISO format: "2024-01-01", "2024-01-01T10:00:00"
     - Unix timestamp (seconds or milliseconds)
     """
@@ -750,7 +724,15 @@ def _parse_time_range(time_str: str | None) -> float | None:
 
     time_str = time_str.strip()
 
-    # Relative time (e.g., "1d", "7d", "30d")
+    # Relative time: hours
+    if time_str.endswith("h"):
+        try:
+            hours = int(time_str[:-1])
+            return time.time() - (hours * 3600)
+        except ValueError:
+            pass
+
+    # Relative time: days
     if time_str.endswith("d"):
         try:
             days = int(time_str[:-1])

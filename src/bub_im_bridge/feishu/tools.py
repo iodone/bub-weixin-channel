@@ -12,9 +12,38 @@ from bub.tools import tool
 if TYPE_CHECKING:
     from bub_im_bridge.feishu.channel import FeishuChannel
 
-# Global reference to the active FeishuChannel instance.
-# Set by FeishuChannel.start(), read by tools at call time.
-_channel_instance: FeishuChannel | None = None
+
+# ---------------------------------------------------------------------------
+# Channel registry – one writer (FeishuChannel.start), many readers (tools).
+# ---------------------------------------------------------------------------
+
+
+class _ChannelRegistry:
+    """Holds a reference to the active :class:`FeishuChannel`.
+
+    Intentionally a class rather than a bare global so that the mutation
+    surface is explicit and grep-able.
+    """
+
+    _instance: FeishuChannel | None = None
+
+    @classmethod
+    def set(cls, channel: FeishuChannel) -> None:
+        cls._instance = channel
+
+    @classmethod
+    def get(cls) -> FeishuChannel:
+        if cls._instance is None:
+            raise RuntimeError("Feishu channel has not been started yet")
+        return cls._instance
+
+
+registry = _ChannelRegistry
+
+
+# ---------------------------------------------------------------------------
+# Tool definitions
+# ---------------------------------------------------------------------------
 
 
 class HistoryInput(BaseModel):
@@ -24,10 +53,18 @@ class HistoryInput(BaseModel):
         None,
         description=(
             "Time range for history query. Examples: '1d' (last 1 day), "
-            "'7d' (last 7 days), '24h' (last 24 hours). "
+            "'7d' (last 7 days), '3h' (last 3 hours). "
             "If not specified, returns the most recent messages."
         ),
     )
+
+
+def _session_to_chat_id(context: ToolContext) -> str | None:
+    """Extract ``chat_id`` from the session id stored in tool context state."""
+    session_id = context.state.get("session_id", "")
+    if isinstance(session_id, str) and session_id.startswith("feishu:"):
+        return session_id.removeprefix("feishu:")
+    return None
 
 
 @tool(name="feishu.history", model=HistoryInput, context=True)
@@ -41,45 +78,23 @@ async def feishu_history(params: HistoryInput, *, context: ToolContext) -> str:
     Examples of when to use:
     - "What did we discuss yesterday?"
     - "Show me messages from the last week"
-    - "What was the last thing John said?"
     - "查一下最近1天的消息"
     - "看看昨天的聊天记录"
     """
-    if _channel_instance is None:
-        return "Error: Feishu channel is not available."
+    channel = registry.get()
 
-    # Resolve chat_id from session_id in state (format: "feishu:{chat_id}")
-    session_id = context.state.get("session_id", "")
-    chat_id = ""
-    if isinstance(session_id, str) and session_id.startswith("feishu:"):
-        chat_id = session_id.removeprefix("feishu:")
-
+    chat_id = _session_to_chat_id(context)
     if not chat_id:
         return "Error: Cannot determine the current chat."
 
-    # Parse time_range to start_time
-    start_time = None
-    if params.time_range:
-        time_range = params.time_range
-        if time_range.endswith("h"):
-            try:
-                hours = int(time_range[:-1])
-                days = hours / 24
-                start_time = f"{days:.1f}d"
-            except ValueError:
-                start_time = time_range
-        else:
-            start_time = time_range
-
-    history = await _channel_instance._fetch_chat_history(
+    history = await channel.fetch_chat_history(
         chat_id=chat_id,
-        start_time=start_time,
+        start_time=params.time_range,
     )
 
     if not history:
         return "No messages found for the specified time range."
 
-    # Format history for display
     lines = [f"Found {len(history)} messages:\n"]
     for msg in history:
         sender = msg.get("sender", "unknown")
