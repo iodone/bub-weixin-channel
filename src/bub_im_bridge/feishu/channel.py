@@ -381,6 +381,19 @@ class FeishuChannel(Channel):
             "create_time": _format_feishu_timestamp(message.create_time),
         }
 
+        # In group chats, the bot only sees messages that @mention it.
+        # Remind the LLM to use feishu.history for full chat history.
+        if message.is_group:
+            payload["message"] += (
+                "\n\n<important>"
+                "You are in a GROUP chat. You can ONLY see messages where you are @mentioned. "
+                "You CANNOT see other messages in this group. "
+                "When the user asks about chat history, previous messages, or what others said, "
+                "you MUST use the feishu_history tool to fetch the actual messages. "
+                "Do NOT guess or make up chat history."
+                "</important>"
+            )
+
         if quoted_message:
             payload["quoted_message"] = quoted_message
 
