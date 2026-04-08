@@ -300,16 +300,23 @@ class FeishuChannel(Channel):
         """Decide whether the message should trigger the bot.
 
         Returns ``(is_active, reason)`` – *reason* is always populated for logging.
+
+        For p2p (single chat): always active.
+        For group chat: only active if @mentioned or has quoted message (parent_id).
         """
         if message.chat_type == "p2p":
             return True, "p2p"
 
+        # Group chat: check for @mentions or quoted message
         text = message.text.strip()
 
+        # Commands always trigger
         if text.startswith(",") or text.startswith("/"):
             return True, "command"
-        if "bub" in text.lower():
-            return True, "bub_keyword"
+
+        # Quoted messages in group chat should be processed (reply to bot's message)
+        if message.parent_id:
+            return True, "quoted_message"
 
         # Exact bot open_id match
         if self._bot_open_id and any(
@@ -321,7 +328,7 @@ class FeishuChannel(Channel):
         if any("bub" in (m.name or "").lower() for m in message.mentions):
             return True, "bub_name_mentioned"
 
-        # Any @-mention in a group chat (permissive fallback)
+        # Any @-mention in a group chat
         if message.mentions:
             return True, "has_mentions"
 
@@ -353,7 +360,15 @@ class FeishuChannel(Channel):
             )
             return
 
-        payload = {
+        # Fetch quoted message content if this is a reply
+        quoted_message = None
+        if message.parent_id:
+            quoted_message = await self._fetch_message_content(message.parent_id)
+
+        # Fetch recent chat history for context
+        chat_history = await self._fetch_chat_history(message.chat_id, limit=10)
+
+        payload: dict[str, Any] = {
             "message": message.text + FEISHU_OUTPUT_INSTRUCTION,
             "message_id": message.message_id,
             "chat_type": message.chat_type,
@@ -361,6 +376,13 @@ class FeishuChannel(Channel):
             "sender_name": message.sender_display,
             "create_time": _format_feishu_timestamp(message.create_time),
         }
+
+        if quoted_message:
+            payload["quoted_message"] = quoted_message
+
+        if chat_history:
+            payload["chat_history"] = chat_history
+
         local_time = _format_feishu_timestamp(message.create_time)
         await self._on_receive(
             ChannelMessage(
@@ -372,6 +394,120 @@ class FeishuChannel(Channel):
                 context={"date": local_time} if local_time else {},
             )
         )
+
+    # -- message fetching ----------------------------------------------------
+
+    async def _fetch_message_content(self, message_id: str) -> str | None:
+        """Fetch the content of a message by its ID."""
+        if self._api_client is None or not message_id:
+            return None
+
+        try:
+            from lark_oapi.api.im.v1 import GetMessageRequest
+
+            req = GetMessageRequest.builder().message_id(message_id).build()
+            im_api = getattr(self._api_client, "im", None)
+            if not im_api:
+                return None
+            v1_api = getattr(im_api, "v1", None)
+            if not v1_api:
+                return None
+            message_api = getattr(v1_api, "message", None)
+            if not message_api:
+                return None
+            resp = message_api.get(req)
+
+            if not resp.success():
+                logger.warning(
+                    "feishu.fetch_message failed message_id={} code={} msg={}",
+                    message_id,
+                    resp.code,
+                    resp.msg,
+                )
+                return None
+
+            msg = getattr(resp, "data", None)
+            if msg:
+                body = getattr(msg, "body", None)
+                if body:
+                    content = getattr(body, "content", None)
+                    if content:
+                        msg_type = getattr(msg, "msg_type", None) or "text"
+                        return _normalize_text(msg_type, content)
+
+        except Exception:
+            logger.exception("feishu.fetch_message error message_id={}", message_id)
+
+        return None
+
+    async def _fetch_chat_history(
+        self, chat_id: str, limit: int = 10
+    ) -> list[dict[str, str]] | None:
+        """Fetch recent chat history for context."""
+        if self._api_client is None or not chat_id:
+            return None
+
+        try:
+            from lark_oapi.api.im.v1 import ListMessageRequest
+
+            req = (
+                ListMessageRequest.builder()
+                .container_id_type("chat")
+                .container_id(chat_id)
+                .page_size(min(limit, 50))
+                .build()
+            )
+            im_api = getattr(self._api_client, "im", None)
+            if not im_api:
+                return None
+            v1_api = getattr(im_api, "v1", None)
+            if not v1_api:
+                return None
+            message_api = getattr(v1_api, "message", None)
+            if not message_api:
+                return None
+            resp = message_api.list(req)
+
+            if not resp.success():
+                logger.warning(
+                    "feishu.fetch_history failed chat_id={} code={} msg={}",
+                    chat_id,
+                    resp.code,
+                    resp.msg,
+                )
+                return None
+
+            history: list[dict[str, str]] = []
+            data = getattr(resp, "data", None)
+            items = getattr(data, "items", None) if data else None
+            if items:
+                for item in items:
+                    body = getattr(item, "body", None)
+                    if body:
+                        content = getattr(body, "content", None)
+                        if content:
+                            msg_type = getattr(item, "msg_type", None) or "text"
+                            normalized = _normalize_text(msg_type, content)
+                            sender = getattr(item, "sender", None)
+                            sender_id = getattr(sender, "id", "") if sender else ""
+                            create_time = getattr(item, "create_time", None)
+                            history.append(
+                                {
+                                    "message_id": getattr(item, "message_id", "") or "",
+                                    "sender": sender_id or "",
+                                    "content": normalized,
+                                    "create_time": _format_feishu_timestamp(
+                                        create_time
+                                    ),
+                                }
+                            )
+
+            return history if history else None
+
+        except Exception:
+            logger.exception("feishu.fetch_history error chat_id={}", chat_id)
+
+        return None
 
     # -- outbound ------------------------------------------------------------
 
@@ -560,7 +696,7 @@ def _extract_outbound_text(message: ChannelMessage) -> str:
 import re
 
 
-def _format_feishu_timestamp(ts: str | None) -> str:
+def _format_feishu_timestamp(ts: str | int | None) -> str:
     """Convert Feishu millisecond timestamp to local time string."""
     if not ts:
         return ""
@@ -569,7 +705,7 @@ def _format_feishu_timestamp(ts: str | None) -> str:
         dt = datetime.fromtimestamp(epoch_ms / 1000).astimezone()
         return dt.strftime("%Y-%m-%d %H:%M:%S")
     except (ValueError, OSError):
-        return ts or ""
+        return str(ts) if ts else ""
 
 
 # Patterns that indicate rich content needing card rendering
