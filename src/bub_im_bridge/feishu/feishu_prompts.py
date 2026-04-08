@@ -5,7 +5,7 @@ FEISHU_OUTPUT_INSTRUCTION = """\
 <output_format>
 Your response will be rendered in Feishu. Use standard Markdown with these rules:
 
-1. Headings: start from ### (max level), then ####, #####, ###### for sub-levels. Do NOT use # or ##.
+1. Headings: start from #### (max level), then #####, ###### for sub-levels. Do NOT use #, ##, or ###.
 2. Tables: standard markdown | col1 | col2 | syntax
 3. Text: **bold**, *italic*, ~~strikethrough~~, [link](url)
 4. Lists: - unordered, 1. ordered (nesting with 4 spaces)
