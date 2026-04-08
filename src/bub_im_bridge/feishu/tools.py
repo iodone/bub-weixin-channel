@@ -12,13 +12,9 @@ from bub.tools import tool
 if TYPE_CHECKING:
     from bub_im_bridge.feishu.channel import FeishuChannel
 
-
-def _get_feishu_channel(context: ToolContext) -> FeishuChannel:
-    """Get FeishuChannel instance from tool context."""
-    channel = context.state.get("_feishu_channel")
-    if channel is None:
-        raise RuntimeError("Feishu channel not available in tool context")
-    return channel
+# Global reference to the active FeishuChannel instance.
+# Set by FeishuChannel.start(), read by tools at call time.
+_channel_instance: FeishuChannel | None = None
 
 
 class HistoryInput(BaseModel):
@@ -31,12 +27,6 @@ class HistoryInput(BaseModel):
             "'7d' (last 7 days), '24h' (last 24 hours). "
             "If not specified, returns the most recent messages."
         ),
-    )
-    limit: int = Field(
-        20,
-        description="Maximum number of messages to return (max 50).",
-        ge=1,
-        le=50,
     )
 
 
@@ -55,16 +45,21 @@ async def feishu_history(params: HistoryInput, *, context: ToolContext) -> str:
     - "查一下最近1天的消息"
     - "看看昨天的聊天记录"
     """
-    channel = _get_feishu_channel(context)
-    chat_id = context.state.get("_feishu_chat_id")
+    if _channel_instance is None:
+        return "Error: Feishu channel is not available."
+
+    # Resolve chat_id from session_id in state (format: "feishu:{chat_id}")
+    session_id = context.state.get("session_id", "")
+    chat_id = ""
+    if isinstance(session_id, str) and session_id.startswith("feishu:"):
+        chat_id = session_id.removeprefix("feishu:")
 
     if not chat_id:
-        return "Error: Cannot determine the current chat. Please try again."
+        return "Error: Cannot determine the current chat."
 
     # Parse time_range to start_time
     start_time = None
     if params.time_range:
-        # Convert "24h" to "1d" format if needed
         time_range = params.time_range
         if time_range.endswith("h"):
             try:
@@ -76,9 +71,8 @@ async def feishu_history(params: HistoryInput, *, context: ToolContext) -> str:
         else:
             start_time = time_range
 
-    history = await channel._fetch_chat_history(
+    history = await _channel_instance._fetch_chat_history(
         chat_id=chat_id,
-        limit=params.limit,
         start_time=start_time,
     )
 

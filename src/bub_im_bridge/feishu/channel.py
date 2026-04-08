@@ -154,6 +154,11 @@ class FeishuChannel(Channel):
 
         self._loop = asyncio.get_running_loop()
 
+        # Register this channel instance globally for tool access
+        from bub_im_bridge.feishu import tools as feishu_tools
+
+        feishu_tools._channel_instance = self
+
         logger.info(
             "feishu.start app_id={}... allow_users={} allow_chats={} bot_open_id={}",
             self._app_id[:8],
@@ -445,17 +450,17 @@ class FeishuChannel(Channel):
     async def _fetch_chat_history(
         self,
         chat_id: str,
-        limit: int = 20,
         start_time: str | None = None,
         end_time: str | None = None,
     ) -> list[dict[str, str]] | None:
         """Fetch chat history with optional time range.
 
+        Uses pagination to retrieve all messages within the time range.
+
         Args:
             chat_id: The chat ID to fetch history from.
-            limit: Maximum number of messages to return (max 50).
-            start_time: Start time in ISO format or relative like "1d", "7d".
-            end_time: End time in ISO format (defaults to now).
+            start_time: Relative like "1d", "7d" or ISO format.
+            end_time: End time (defaults to now).
         """
         if self._api_client is None or not chat_id:
             return None
@@ -463,22 +468,6 @@ class FeishuChannel(Channel):
         try:
             from lark_oapi.api.im.v1 import ListMessageRequest
 
-            builder = (
-                ListMessageRequest.builder()
-                .container_id_type("chat")
-                .container_id(chat_id)
-                .page_size(min(limit, 50))
-            )
-
-            # Add time range filters if provided
-            start_ts = _parse_time_range(start_time)
-            end_ts = _parse_time_range(end_time)
-            if start_ts:
-                builder.start_time(str(int(start_ts)))
-            if end_ts:
-                builder.end_time(str(int(end_ts)))
-
-            req = builder.build()
             im_api = getattr(self._api_client, "im", None)
             if not im_api:
                 return None
@@ -488,41 +477,70 @@ class FeishuChannel(Channel):
             message_api = getattr(v1_api, "message", None)
             if not message_api:
                 return None
-            resp = message_api.list(req)
 
-            if not resp.success():
-                logger.warning(
-                    "feishu.fetch_history failed chat_id={} code={} msg={}",
-                    chat_id,
-                    resp.code,
-                    resp.msg,
-                )
-                return None
+            # Add time range filters if provided
+            start_ts = _parse_time_range(start_time)
+            end_ts = _parse_time_range(end_time)
 
             history: list[dict[str, str]] = []
-            data = getattr(resp, "data", None)
-            items = getattr(data, "items", None) if data else None
-            if items:
-                for item in items:
-                    body = getattr(item, "body", None)
-                    if body:
-                        content = getattr(body, "content", None)
-                        if content:
-                            msg_type = getattr(item, "msg_type", None) or "text"
-                            normalized = _normalize_text(msg_type, content)
-                            sender = getattr(item, "sender", None)
-                            sender_id = getattr(sender, "id", "") if sender else ""
-                            create_time = getattr(item, "create_time", None)
-                            history.append(
-                                {
-                                    "message_id": getattr(item, "message_id", "") or "",
-                                    "sender": sender_id or "",
-                                    "content": normalized,
-                                    "create_time": _format_feishu_timestamp(
-                                        create_time
-                                    ),
-                                }
-                            )
+            page_token: str | None = None
+
+            while True:
+                builder = (
+                    ListMessageRequest.builder()
+                    .container_id_type("chat")
+                    .container_id(chat_id)
+                    .page_size(50)
+                )
+                if start_ts:
+                    builder.start_time(str(int(start_ts)))
+                if end_ts:
+                    builder.end_time(str(int(end_ts)))
+                if page_token:
+                    builder.page_token(page_token)
+
+                req = builder.build()
+                resp = message_api.list(req)
+
+                if not resp.success():
+                    logger.warning(
+                        "feishu.fetch_history failed chat_id={} code={} msg={}",
+                        chat_id,
+                        resp.code,
+                        resp.msg,
+                    )
+                    break
+
+                data = getattr(resp, "data", None)
+                items = getattr(data, "items", None) if data else None
+                if items:
+                    for item in items:
+                        body = getattr(item, "body", None)
+                        if body:
+                            content = getattr(body, "content", None)
+                            if content:
+                                msg_type = getattr(item, "msg_type", None) or "text"
+                                normalized = _normalize_text(msg_type, content)
+                                sender = getattr(item, "sender", None)
+                                sender_id = getattr(sender, "id", "") if sender else ""
+                                create_time = getattr(item, "create_time", None)
+                                history.append(
+                                    {
+                                        "message_id": getattr(item, "message_id", "")
+                                        or "",
+                                        "sender": sender_id or "",
+                                        "content": normalized,
+                                        "create_time": _format_feishu_timestamp(
+                                            create_time
+                                        ),
+                                    }
+                                )
+
+                # Check for next page
+                has_more = getattr(data, "has_more", False) if data else False
+                page_token = getattr(data, "page_token", None) if data else None
+                if not has_more or not page_token:
+                    break
 
             return history if history else None
 
