@@ -144,6 +144,9 @@ class FeishuChannel(Channel):
         # (The bub framework does not forward ``context`` to outbound messages.)
         self._last_message_id: dict[str, str] = {}
 
+        # Cache: open_id -> display name (avoids repeated API calls)
+        self._user_name_cache: dict[str, str] = {}
+
     @property
     def needs_debounce(self) -> bool:
         return True
@@ -517,12 +520,12 @@ class FeishuChannel(Channel):
                         continue
                     msg_type = getattr(item, "msg_type", None) or "text"
                     sender = getattr(item, "sender", None)
+                    sender_id = (getattr(sender, "id", "") or "") if sender else ""
                     history.append(
                         {
                             "message_id": getattr(item, "message_id", "") or "",
-                            "sender": (getattr(sender, "id", "") or "")
-                            if sender
-                            else "",
+                            "sender_id": sender_id,
+                            "sender": self._resolve_user_name(sender_id),
                             "content": _normalize_text(msg_type, content),
                             "create_time": _format_feishu_timestamp(
                                 getattr(item, "create_time", None)
@@ -539,6 +542,47 @@ class FeishuChannel(Channel):
             logger.exception("feishu.fetch_history error chat_id={}", chat_id)
 
         return history
+
+    def _resolve_user_name(self, open_id: str) -> str:
+        """Resolve an open_id to a display name, with caching."""
+        if not open_id:
+            return ""
+        if open_id in self._user_name_cache:
+            return self._user_name_cache[open_id]
+
+        name = self._fetch_user_name(open_id)
+        self._user_name_cache[open_id] = name
+        return name
+
+    def _fetch_user_name(self, open_id: str) -> str:
+        """Call Feishu contact API to get user's display name."""
+        if self._api_client is None:
+            return open_id
+        try:
+            from lark_oapi.api.contact.v3 import GetUserRequest
+
+            req = (
+                GetUserRequest.builder()
+                .user_id(open_id)
+                .user_id_type("open_id")
+                .build()
+            )
+            resp = self._api_client.contact.v3.user.get(req)
+            if resp.success():
+                user = getattr(resp, "data", None)
+                user_obj = getattr(user, "user", None) if user else None
+                if user_obj:
+                    return getattr(user_obj, "name", None) or open_id
+            else:
+                logger.debug(
+                    "feishu.fetch_user_name failed open_id={} code={} msg={}",
+                    open_id,
+                    resp.code,
+                    resp.msg,
+                )
+        except Exception:
+            logger.debug("feishu.fetch_user_name error open_id={}", open_id)
+        return open_id
 
     # -- outbound ------------------------------------------------------------
 
