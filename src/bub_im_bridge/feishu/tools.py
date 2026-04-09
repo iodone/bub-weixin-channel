@@ -91,26 +91,10 @@ async def feishu_history(params: HistoryInput, *, context: ToolContext) -> str:
         return "No messages found for the specified time range."
 
     lines = [f"Found {len(history)} messages:\n"]
-    total_len = 0
-    max_len = 8000  # Keep tool output within a reasonable size for LLM context
-    truncated = False
     for msg in history:
         sender = msg.get("sender", "unknown")
         content = msg.get("content", "")
         create_time = msg.get("create_time", "")
-        # Truncate individual long messages
-        if len(content) > 200:
-            content = content[:200] + "..."
-        line = f"[{create_time}] {sender}: {content}"
-        total_len += len(line)
-        if total_len > max_len:
-            truncated = True
-            break
-        lines.append(line)
-
-    if truncated:
-        lines.append(
-            f"\n... (truncated, showing {len(lines) - 1} of {len(history)} messages)"
-        )
+        lines.append(f"[{create_time}] {sender}: {content}")
 
     return "\n".join(lines)
