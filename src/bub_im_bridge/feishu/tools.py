@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import os
+from functools import lru_cache
+
 import lark_oapi as lark
 from pydantic import BaseModel, Field
 from republic import ToolContext
@@ -12,23 +15,24 @@ from bub_im_bridge.feishu.api import fetch_chat_history
 
 
 # ---------------------------------------------------------------------------
-# Client registry – set once by FeishuChannel.start(), read by tools.
+# Helpers
 # ---------------------------------------------------------------------------
 
-_api_client: lark.Client | None = None
 
-
-def set_client(client: lark.Client) -> None:
-    """Register the Feishu API client (called by FeishuChannel.start)."""
-    global _api_client
-    _api_client = client
-
-
-def _get_client() -> lark.Client:
-    """Return the registered client or raise."""
-    if _api_client is None:
-        raise RuntimeError("Feishu API client has not been registered yet")
-    return _api_client
+@lru_cache(maxsize=1)
+def _build_client() -> lark.Client:
+    """Lazily build a shared Feishu API client from environment variables."""
+    app_id = os.environ.get("BUB_FEISHU_APP_ID", "")
+    app_secret = os.environ.get("BUB_FEISHU_APP_SECRET", "")
+    if not app_id or not app_secret:
+        raise RuntimeError("BUB_FEISHU_APP_ID / BUB_FEISHU_APP_SECRET not set")
+    return (
+        lark.Client.builder()
+        .app_id(app_id)
+        .app_secret(app_secret)
+        .log_level(lark.LogLevel.WARNING)
+        .build()
+    )
 
 
 def _session_to_chat_id(context: ToolContext) -> str | None:
@@ -71,7 +75,7 @@ async def feishu_history(params: HistoryInput, *, context: ToolContext) -> str:
     - "查一下最近1天的消息"
     - "看看昨天的聊天记录"
     """
-    client = _get_client()
+    client = _build_client()
 
     chat_id = _session_to_chat_id(context)
     if not chat_id:
