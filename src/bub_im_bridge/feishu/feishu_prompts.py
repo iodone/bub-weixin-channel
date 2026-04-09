@@ -1,4 +1,4 @@
-"""Feishu-specific output format instructions appended to user messages."""
+"""Feishu-specific prompt instructions appended to user messages."""
 
 FEISHU_OUTPUT_INSTRUCTION = """\
 
@@ -17,3 +17,24 @@ Your response will be rendered in Feishu. Use standard Markdown with these rules
 For simple conversational replies, respond naturally without formatting — like a normal person chatting.
 Only use rich formatting (headings, tables, lists) when the content benefits from structure.
 </output_format>"""
+
+FEISHU_HISTORY_HINT_P2P = """\
+
+<important>
+Your conversation history (tape) only contains messages processed by this bot session. \
+It does NOT include the full Feishu chat history (e.g. messages before the bot started, \
+or messages outside this session). \
+When the user asks about chat history, previous messages, or past conversations, \
+you MUST use the feishu_history tool to fetch the actual messages from Feishu. \
+Do NOT rely solely on your conversation tape or guess chat history.
+</important>"""
+
+FEISHU_HISTORY_HINT_GROUP = """\
+
+<important>
+You are in a GROUP chat. You can ONLY see messages where you are @mentioned. \
+You CANNOT see other messages in this group. \
+When the user asks about chat history, previous messages, or what others said, \
+you MUST use the feishu_history tool to fetch the actual messages. \
+Do NOT guess or make up chat history.
+</important>"""

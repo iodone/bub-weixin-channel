@@ -26,7 +26,11 @@ from bub.channels.base import Channel
 from bub.channels.message import ChannelMessage
 from bub.types import MessageHandler
 
-from bub_im_bridge.feishu.feishu_prompts import FEISHU_OUTPUT_INSTRUCTION
+from bub_im_bridge.feishu.feishu_prompts import (
+    FEISHU_HISTORY_HINT_GROUP,
+    FEISHU_HISTORY_HINT_P2P,
+    FEISHU_OUTPUT_INSTRUCTION,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -375,27 +379,18 @@ class FeishuChannel(Channel):
         if message.parent_id:
             quoted_message = await self.fetch_message_content(message.parent_id)
 
+        history_hint = (
+            FEISHU_HISTORY_HINT_GROUP if message.is_group else FEISHU_HISTORY_HINT_P2P
+        )
+
         payload: dict[str, Any] = {
-            "message": message.text + FEISHU_OUTPUT_INSTRUCTION,
+            "message": message.text + FEISHU_OUTPUT_INSTRUCTION + history_hint,
             "message_id": message.message_id,
             "chat_type": message.chat_type,
             "sender_id": message.sender_open_id or "",
             "sender_name": message.sender_display,
             "create_time": _format_feishu_timestamp(message.create_time),
         }
-
-        # In group chats, the bot only sees messages that @mention it.
-        # Remind the LLM to use feishu.history for full chat history.
-        if message.is_group:
-            payload["message"] += (
-                "\n\n<important>"
-                "You are in a GROUP chat. You can ONLY see messages where you are @mentioned. "
-                "You CANNOT see other messages in this group. "
-                "When the user asks about chat history, previous messages, or what others said, "
-                "you MUST use the feishu_history tool to fetch the actual messages. "
-                "Do NOT guess or make up chat history."
-                "</important>"
-            )
 
         if quoted_message:
             payload["quoted_message"] = quoted_message
