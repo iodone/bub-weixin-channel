@@ -21,4 +21,4 @@ class FeishPlugin:
     @hookimpl
     def provide_channels(self, message_handler: MessageHandler) -> list[Any]:
         """Provide Feishu channel to Bub."""
-        return [FeishuChannel(on_receive=message_handler)]
+        return [FeishuChannel(on_receive=message_handler, framework=self.framework)]
