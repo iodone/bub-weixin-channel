@@ -9,6 +9,7 @@ from bub.hookspecs import hookimpl
 from bub.types import MessageHandler
 
 from bub_im_bridge.feishu.channel import FeishuChannel
+from bub_im_bridge.feishu import tools  # noqa: F401 - import to register tools
 
 
 class FeishPlugin:

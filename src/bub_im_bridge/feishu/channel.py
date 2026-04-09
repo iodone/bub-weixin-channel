@@ -6,9 +6,9 @@ import asyncio
 import contextlib
 import json
 import os
+import re
 import threading
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from typing import Any, ClassVar
 
 import lark_oapi as lark
@@ -24,7 +24,16 @@ from bub.channels.base import Channel
 from bub.channels.message import ChannelMessage
 from bub.types import MessageHandler
 
-from bub_im_bridge.feishu.feishu_prompts import FEISHU_OUTPUT_INSTRUCTION
+from bub_im_bridge.feishu.api import (
+    fetch_message_content,
+    format_feishu_timestamp,
+    _normalize_text,
+)
+from bub_im_bridge.feishu.feishu_prompts import (
+    FEISHU_HISTORY_HINT_GROUP,
+    FEISHU_HISTORY_HINT_P2P,
+    FEISHU_OUTPUT_INSTRUCTION,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -40,24 +49,6 @@ def _parse_collection(raw: str) -> set[str]:
         if isinstance(parsed, list):
             return {str(item).strip() for item in parsed if str(item).strip()}
     return {item.strip() for item in raw.split(",") if item.strip()}
-
-
-def _normalize_text(message_type: str, content: str) -> str:
-    """Extract human-readable text from the raw Feishu message content JSON."""
-    if not content:
-        return ""
-
-    parsed: dict[str, Any] | None = None
-    with contextlib.suppress(json.JSONDecodeError):
-        obj = json.loads(content)
-        if isinstance(obj, dict):
-            parsed = obj
-
-    if message_type == "text":
-        return str(parsed.get("text", "")).strip() if parsed else content.strip()
-    if parsed is None:
-        return f"[{message_type} message]"
-    return f"[{message_type} message] {json.dumps(parsed, ensure_ascii=False)}"
 
 
 # ---------------------------------------------------------------------------
@@ -300,16 +291,23 @@ class FeishuChannel(Channel):
         """Decide whether the message should trigger the bot.
 
         Returns ``(is_active, reason)`` – *reason* is always populated for logging.
+
+        For p2p (single chat): always active.
+        For group chat: only active if @mentioned or has quoted message (parent_id).
         """
         if message.chat_type == "p2p":
             return True, "p2p"
 
+        # Group chat: check for @mentions or quoted message
         text = message.text.strip()
 
+        # Commands always trigger
         if text.startswith(",") or text.startswith("/"):
             return True, "command"
-        if "bub" in text.lower():
-            return True, "bub_keyword"
+
+        # Quoted messages in group chat should be processed (reply to bot's message)
+        if message.parent_id:
+            return True, "quoted_message"
 
         # Exact bot open_id match
         if self._bot_open_id and any(
@@ -321,7 +319,7 @@ class FeishuChannel(Channel):
         if any("bub" in (m.name or "").lower() for m in message.mentions):
             return True, "bub_name_mentioned"
 
-        # Any @-mention in a group chat (permissive fallback)
+        # Any @-mention in a group chat
         if message.mentions:
             return True, "has_mentions"
 
@@ -353,15 +351,38 @@ class FeishuChannel(Channel):
             )
             return
 
-        payload = {
-            "message": message.text + FEISHU_OUTPUT_INSTRUCTION,
+        # Fetch quoted message content if this is a reply
+        quoted_message = None
+        if message.parent_id and self._api_client is not None:
+            quoted_message = await fetch_message_content(
+                self._api_client, message.parent_id
+            )
+
+        history_hint = (
+            FEISHU_HISTORY_HINT_GROUP if message.is_group else FEISHU_HISTORY_HINT_P2P
+        )
+
+        payload: dict[str, Any] = {
+            "message": message.text + FEISHU_OUTPUT_INSTRUCTION + history_hint,
             "message_id": message.message_id,
             "chat_type": message.chat_type,
             "sender_id": message.sender_open_id or "",
             "sender_name": message.sender_display,
-            "create_time": _format_feishu_timestamp(message.create_time),
+            "create_time": format_feishu_timestamp(message.create_time),
         }
-        local_time = _format_feishu_timestamp(message.create_time)
+
+        if quoted_message:
+            payload["quoted_message"] = quoted_message
+
+        local_time = format_feishu_timestamp(message.create_time)
+
+        # Inject API client into context for tool access (like schedule injects scheduler)
+        context: dict[str, Any] = {}
+        if local_time:
+            context["date"] = local_time
+        if self._api_client is not None:
+            context["_feishu_api_client"] = self._api_client
+
         await self._on_receive(
             ChannelMessage(
                 session_id=session_id,
@@ -369,7 +390,7 @@ class FeishuChannel(Channel):
                 chat_id=message.chat_id,
                 content=json.dumps(payload, ensure_ascii=False),
                 is_active=True,
-                context={"date": local_time} if local_time else {},
+                context=context,
             )
         )
 
@@ -555,21 +576,6 @@ def _extract_outbound_text(message: ChannelMessage) -> str:
             if isinstance(text, str) and text.strip():
                 return text
     return content.strip() if isinstance(content, str) else ""
-
-
-import re
-
-
-def _format_feishu_timestamp(ts: str | None) -> str:
-    """Convert Feishu millisecond timestamp to local time string."""
-    if not ts:
-        return ""
-    try:
-        epoch_ms = int(ts)
-        dt = datetime.fromtimestamp(epoch_ms / 1000).astimezone()
-        return dt.strftime("%Y-%m-%d %H:%M:%S")
-    except (ValueError, OSError):
-        return ts or ""
 
 
 # Patterns that indicate rich content needing card rendering
