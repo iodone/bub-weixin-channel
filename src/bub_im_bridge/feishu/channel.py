@@ -161,6 +161,11 @@ class FeishuChannel(Channel):
             .build()
         )
 
+        # Register client for tool access
+        from bub_im_bridge.feishu.tools import set_client
+
+        set_client(self._api_client)
+
         event_handler = (
             lark.EventDispatcherHandler.builder(
                 self._verification_token,

@@ -12,15 +12,23 @@ from bub_im_bridge.feishu.api import fetch_chat_history
 
 
 # ---------------------------------------------------------------------------
-# Helpers
+# Client registry – set once by FeishuChannel.start(), read by tools.
 # ---------------------------------------------------------------------------
 
+_api_client: lark.Client | None = None
 
-def _ensure_client(state: dict) -> lark.Client:
-    client = state.get("_feishu_api_client")
-    if client is None:
-        raise RuntimeError("Feishu API client not found in state")
-    return client
+
+def set_client(client: lark.Client) -> None:
+    """Register the Feishu API client (called by FeishuChannel.start)."""
+    global _api_client
+    _api_client = client
+
+
+def _get_client() -> lark.Client:
+    """Return the registered client or raise."""
+    if _api_client is None:
+        raise RuntimeError("Feishu API client has not been registered yet")
+    return _api_client
 
 
 def _session_to_chat_id(context: ToolContext) -> str | None:
@@ -63,7 +71,7 @@ async def feishu_history(params: HistoryInput, *, context: ToolContext) -> str:
     - "查一下最近1天的消息"
     - "看看昨天的聊天记录"
     """
-    client = _ensure_client(context.state)
+    client = _get_client()
 
     chat_id = _session_to_chat_id(context)
     if not chat_id:
