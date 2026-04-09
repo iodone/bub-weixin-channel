@@ -77,6 +77,10 @@ async def fetch_chat_history(
     page_token: str | None = None
     cache = user_name_cache if user_name_cache is not None else {}
 
+    # Bulk-load member names before iterating messages
+    if resolve_names and not cache:
+        preload_chat_members(client, chat_id, cache)
+
     try:
         from lark_oapi.api.im.v1 import ListMessageRequest
 
@@ -162,11 +166,63 @@ def resolve_user_name(
     if open_id.startswith("cli_"):
         name = "bot"
     else:
+        # Not in cache — try contact API as fallback
         name = _fetch_user_name(client, open_id)
 
     if cache is not None:
         cache[open_id] = name
     return name
+
+
+def preload_chat_members(
+    client: lark.Client,
+    chat_id: str,
+    cache: dict[str, str],
+) -> None:
+    """Bulk-load chat member names into cache via the chat members API.
+
+    This only requires ``im:chat:readonly`` permission (available to any
+    bot that has joined the chat), unlike the contact API which needs
+    ``contact:user.base:readonly``.
+    """
+    try:
+        from lark_oapi.api.im.v1 import GetChatMembersRequest
+
+        page_token: str | None = None
+        while True:
+            builder = (
+                GetChatMembersRequest.builder()
+                .chat_id(chat_id)
+                .member_id_type("open_id")
+                .page_size(100)
+            )
+            if page_token:
+                builder.page_token(page_token)
+
+            resp = client.im.v1.chat_members.get(builder.build())
+            if not resp.success():
+                logger.debug(
+                    "feishu.api.preload_members failed chat_id={} code={} msg={}",
+                    chat_id,
+                    resp.code,
+                    resp.msg,
+                )
+                break
+
+            data = getattr(resp, "data", None)
+            for member in getattr(data, "items", None) or []:
+                member_id = getattr(member, "member_id", None) or ""
+                name = getattr(member, "name", None) or ""
+                if member_id and name:
+                    cache[member_id] = name
+
+            has_more = getattr(data, "has_more", False) if data else False
+            page_token = getattr(data, "page_token", None) if data else None
+            if not has_more or not page_token:
+                break
+
+    except Exception:
+        logger.debug("feishu.api.preload_members error chat_id={}", chat_id)
 
 
 # ---------------------------------------------------------------------------
@@ -182,7 +238,11 @@ def _get_message_api(client: lark.Client) -> Any | None:
 
 
 def _fetch_user_name(client: lark.Client, open_id: str) -> str:
-    """Call Feishu contact API to get user's display name."""
+    """Call Feishu contact API to get user's display name.
+
+    Requires ``contact:user.base:readonly`` permission. Falls back to
+    *open_id* if the app lacks permission (error 41050).
+    """
     try:
         from lark_oapi.api.contact.v3 import GetUserRequest
 
