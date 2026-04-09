@@ -148,13 +148,22 @@ def resolve_user_name(
     *,
     cache: dict[str, str] | None = None,
 ) -> str:
-    """Resolve an open_id to a display name (with optional cache)."""
+    """Resolve an open_id to a display name (with optional cache).
+
+    Bot IDs (``cli_`` prefix) are returned as "bot" since they cannot
+    be resolved via the contact API.
+    """
     if not open_id:
         return ""
     if cache is not None and open_id in cache:
         return cache[open_id]
 
-    name = _fetch_user_name(client, open_id)
+    # Bot IDs start with "cli_", skip API call
+    if open_id.startswith("cli_"):
+        name = "bot"
+    else:
+        name = _fetch_user_name(client, open_id)
+
     if cache is not None:
         cache[open_id] = name
     return name
