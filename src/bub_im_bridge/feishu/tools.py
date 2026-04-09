@@ -2,43 +2,33 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
+import lark_oapi as lark
 from pydantic import BaseModel, Field
 from republic import ToolContext
 
 from bub.tools import tool
 
-if TYPE_CHECKING:
-    from bub_im_bridge.feishu.channel import FeishuChannel
+from bub_im_bridge.feishu.api import fetch_chat_history
 
 
 # ---------------------------------------------------------------------------
-# Channel registry – one writer (FeishuChannel.start), many readers (tools).
+# Helpers
 # ---------------------------------------------------------------------------
 
 
-class _ChannelRegistry:
-    """Holds a reference to the active :class:`FeishuChannel`.
-
-    Intentionally a class rather than a bare global so that the mutation
-    surface is explicit and grep-able.
-    """
-
-    _instance: FeishuChannel | None = None
-
-    @classmethod
-    def set(cls, channel: FeishuChannel) -> None:
-        cls._instance = channel
-
-    @classmethod
-    def get(cls) -> FeishuChannel:
-        if cls._instance is None:
-            raise RuntimeError("Feishu channel has not been started yet")
-        return cls._instance
+def _ensure_client(state: dict) -> lark.Client:
+    client = state.get("_feishu_api_client")
+    if client is None:
+        raise RuntimeError("Feishu API client not found in state")
+    return client
 
 
-registry = _ChannelRegistry
+def _session_to_chat_id(context: ToolContext) -> str | None:
+    """Extract ``chat_id`` from the session id stored in tool context state."""
+    session_id = context.state.get("session_id", "")
+    if isinstance(session_id, str) and session_id.startswith("feishu:"):
+        return session_id.removeprefix("feishu:")
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -59,14 +49,6 @@ class HistoryInput(BaseModel):
     )
 
 
-def _session_to_chat_id(context: ToolContext) -> str | None:
-    """Extract ``chat_id`` from the session id stored in tool context state."""
-    session_id = context.state.get("session_id", "")
-    if isinstance(session_id, str) and session_id.startswith("feishu:"):
-        return session_id.removeprefix("feishu:")
-    return None
-
-
 @tool(name="feishu.history", model=HistoryInput, context=True)
 async def feishu_history(params: HistoryInput, *, context: ToolContext) -> str:
     """Fetch chat history from the current Feishu conversation.
@@ -81,14 +63,15 @@ async def feishu_history(params: HistoryInput, *, context: ToolContext) -> str:
     - "查一下最近1天的消息"
     - "看看昨天的聊天记录"
     """
-    channel = registry.get()
+    client = _ensure_client(context.state)
 
     chat_id = _session_to_chat_id(context)
     if not chat_id:
         return "Error: Cannot determine the current chat."
 
-    history = await channel.fetch_chat_history(
-        chat_id=chat_id,
+    history = await fetch_chat_history(
+        client,
+        chat_id,
         start_time=params.time_range,
     )
 

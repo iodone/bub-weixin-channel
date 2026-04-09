@@ -8,9 +8,7 @@ import json
 import os
 import re
 import threading
-import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from typing import Any, ClassVar
 
 import lark_oapi as lark
@@ -26,6 +24,11 @@ from bub.channels.base import Channel
 from bub.channels.message import ChannelMessage
 from bub.types import MessageHandler
 
+from bub_im_bridge.feishu.api import (
+    fetch_message_content,
+    format_feishu_timestamp,
+    _normalize_text,
+)
 from bub_im_bridge.feishu.feishu_prompts import (
     FEISHU_HISTORY_HINT_GROUP,
     FEISHU_HISTORY_HINT_P2P,
@@ -46,24 +49,6 @@ def _parse_collection(raw: str) -> set[str]:
         if isinstance(parsed, list):
             return {str(item).strip() for item in parsed if str(item).strip()}
     return {item.strip() for item in raw.split(",") if item.strip()}
-
-
-def _normalize_text(message_type: str, content: str) -> str:
-    """Extract human-readable text from the raw Feishu message content JSON."""
-    if not content:
-        return ""
-
-    parsed: dict[str, Any] | None = None
-    with contextlib.suppress(json.JSONDecodeError):
-        obj = json.loads(content)
-        if isinstance(obj, dict):
-            parsed = obj
-
-    if message_type == "text":
-        return str(parsed.get("text", "")).strip() if parsed else content.strip()
-    if parsed is None:
-        return f"[{message_type} message]"
-    return f"[{message_type} message] {json.dumps(parsed, ensure_ascii=False)}"
 
 
 # ---------------------------------------------------------------------------
@@ -148,9 +133,6 @@ class FeishuChannel(Channel):
         # (The bub framework does not forward ``context`` to outbound messages.)
         self._last_message_id: dict[str, str] = {}
 
-        # Cache: open_id -> display name (avoids repeated API calls)
-        self._user_name_cache: dict[str, str] = {}
-
     @property
     def needs_debounce(self) -> bool:
         return True
@@ -162,11 +144,6 @@ class FeishuChannel(Channel):
             )
 
         self._loop = asyncio.get_running_loop()
-
-        # Register this channel instance for tool access
-        from bub_im_bridge.feishu.tools import registry
-
-        registry.set(self)
 
         logger.info(
             "feishu.start app_id={}... allow_users={} allow_chats={} bot_open_id={}",
@@ -376,8 +353,10 @@ class FeishuChannel(Channel):
 
         # Fetch quoted message content if this is a reply
         quoted_message = None
-        if message.parent_id:
-            quoted_message = await self.fetch_message_content(message.parent_id)
+        if message.parent_id and self._api_client is not None:
+            quoted_message = await fetch_message_content(
+                self._api_client, message.parent_id
+            )
 
         history_hint = (
             FEISHU_HISTORY_HINT_GROUP if message.is_group else FEISHU_HISTORY_HINT_P2P
@@ -389,20 +368,20 @@ class FeishuChannel(Channel):
             "chat_type": message.chat_type,
             "sender_id": message.sender_open_id or "",
             "sender_name": message.sender_display,
-            "create_time": _format_feishu_timestamp(message.create_time),
+            "create_time": format_feishu_timestamp(message.create_time),
         }
 
         if quoted_message:
             payload["quoted_message"] = quoted_message
 
-        local_time = _format_feishu_timestamp(message.create_time)
+        local_time = format_feishu_timestamp(message.create_time)
 
-        # Register channel instance and chat_id in context for tool access
+        # Inject API client into context for tool access (like schedule injects scheduler)
         context: dict[str, Any] = {}
         if local_time:
             context["date"] = local_time
-        context["_feishu_channel"] = self
-        context["_feishu_chat_id"] = message.chat_id
+        if self._api_client is not None:
+            context["_feishu_api_client"] = self._api_client
 
         await self._on_receive(
             ChannelMessage(
@@ -414,170 +393,6 @@ class FeishuChannel(Channel):
                 context=context,
             )
         )
-
-    # -- message fetching ----------------------------------------------------
-
-    def _get_message_api(self) -> Any | None:
-        """Return the ``im.v1.message`` API handle, or ``None``."""
-        if self._api_client is None:
-            return None
-        im = getattr(self._api_client, "im", None)
-        v1 = getattr(im, "v1", None) if im else None
-        return getattr(v1, "message", None) if v1 else None
-
-    async def fetch_message_content(self, message_id: str) -> str | None:
-        """Fetch the text content of a single message by ID."""
-        api = self._get_message_api()
-        if api is None or not message_id:
-            return None
-
-        try:
-            from lark_oapi.api.im.v1 import GetMessageRequest
-
-            req = GetMessageRequest.builder().message_id(message_id).build()
-            resp = api.get(req)
-
-            if not resp.success():
-                logger.warning(
-                    "feishu.fetch_message failed message_id={} code={} msg={}",
-                    message_id,
-                    resp.code,
-                    resp.msg,
-                )
-                return None
-
-            data = getattr(resp, "data", None)
-            if data:
-                body = getattr(data, "body", None)
-                content = getattr(body, "content", None) if body else None
-                if content:
-                    msg_type = getattr(data, "msg_type", None) or "text"
-                    return _normalize_text(msg_type, content)
-
-        except Exception:
-            logger.exception("feishu.fetch_message error message_id={}", message_id)
-
-        return None
-
-    async def fetch_chat_history(
-        self,
-        chat_id: str,
-        start_time: str | None = None,
-        end_time: str | None = None,
-    ) -> list[dict[str, str]]:
-        """Fetch chat messages, optionally filtered by time range.
-
-        Returns all pages of results. Uses ``_parse_time_range`` to convert
-        human-friendly strings like ``"1d"`` or ``"7d"`` into timestamps.
-        """
-        api = self._get_message_api()
-        if api is None or not chat_id:
-            return []
-
-        start_ts = _parse_time_range(start_time)
-        end_ts = _parse_time_range(end_time)
-        history: list[dict[str, str]] = []
-        page_token: str | None = None
-
-        try:
-            from lark_oapi.api.im.v1 import ListMessageRequest
-
-            while True:
-                builder = (
-                    ListMessageRequest.builder()
-                    .container_id_type("chat")
-                    .container_id(chat_id)
-                    .page_size(50)
-                )
-                if start_ts:
-                    builder.start_time(str(int(start_ts)))
-                if end_ts:
-                    builder.end_time(str(int(end_ts)))
-                if page_token:
-                    builder.page_token(page_token)
-
-                resp = api.list(builder.build())
-
-                if not resp.success():
-                    logger.warning(
-                        "feishu.fetch_history failed chat_id={} code={} msg={}",
-                        chat_id,
-                        resp.code,
-                        resp.msg,
-                    )
-                    break
-
-                data = getattr(resp, "data", None)
-                for item in getattr(data, "items", None) or []:
-                    body = getattr(item, "body", None)
-                    content = getattr(body, "content", None) if body else None
-                    if not content:
-                        continue
-                    msg_type = getattr(item, "msg_type", None) or "text"
-                    sender = getattr(item, "sender", None)
-                    sender_id = (getattr(sender, "id", "") or "") if sender else ""
-                    history.append(
-                        {
-                            "message_id": getattr(item, "message_id", "") or "",
-                            "sender_id": sender_id,
-                            "sender": self._resolve_user_name(sender_id),
-                            "content": _normalize_text(msg_type, content),
-                            "create_time": _format_feishu_timestamp(
-                                getattr(item, "create_time", None)
-                            ),
-                        }
-                    )
-
-                has_more = getattr(data, "has_more", False) if data else False
-                page_token = getattr(data, "page_token", None) if data else None
-                if not has_more or not page_token:
-                    break
-
-        except Exception:
-            logger.exception("feishu.fetch_history error chat_id={}", chat_id)
-
-        return history
-
-    def _resolve_user_name(self, open_id: str) -> str:
-        """Resolve an open_id to a display name, with caching."""
-        if not open_id:
-            return ""
-        if open_id in self._user_name_cache:
-            return self._user_name_cache[open_id]
-
-        name = self._fetch_user_name(open_id)
-        self._user_name_cache[open_id] = name
-        return name
-
-    def _fetch_user_name(self, open_id: str) -> str:
-        """Call Feishu contact API to get user's display name."""
-        if self._api_client is None:
-            return open_id
-        try:
-            from lark_oapi.api.contact.v3 import GetUserRequest
-
-            req = (
-                GetUserRequest.builder()
-                .user_id(open_id)
-                .user_id_type("open_id")
-                .build()
-            )
-            resp = self._api_client.contact.v3.user.get(req)
-            if resp.success():
-                user = getattr(resp, "data", None)
-                user_obj = getattr(user, "user", None) if user else None
-                if user_obj:
-                    return getattr(user_obj, "name", None) or open_id
-            else:
-                logger.debug(
-                    "feishu.fetch_user_name failed open_id={} code={} msg={}",
-                    open_id,
-                    resp.code,
-                    resp.msg,
-                )
-        except Exception:
-            logger.debug("feishu.fetch_user_name error open_id={}", open_id)
-        return open_id
 
     # -- outbound ------------------------------------------------------------
 
@@ -761,67 +576,6 @@ def _extract_outbound_text(message: ChannelMessage) -> str:
             if isinstance(text, str) and text.strip():
                 return text
     return content.strip() if isinstance(content, str) else ""
-
-
-def _parse_time_range(time_str: str | None) -> float | None:
-    """Parse time range string to Unix timestamp (seconds).
-
-    Supports:
-    - Relative: "3h" (hours), "1d", "7d", "30d" (days)
-    - ISO format: "2024-01-01", "2024-01-01T10:00:00"
-    - Unix timestamp (seconds or milliseconds)
-    """
-    if not time_str:
-        return None
-
-    time_str = time_str.strip()
-
-    # Relative time: hours
-    if time_str.endswith("h"):
-        try:
-            hours = int(time_str[:-1])
-            return time.time() - (hours * 3600)
-        except ValueError:
-            pass
-
-    # Relative time: days
-    if time_str.endswith("d"):
-        try:
-            days = int(time_str[:-1])
-            return time.time() - (days * 86400)
-        except ValueError:
-            pass
-
-    # Try parsing as integer (Unix timestamp)
-    try:
-        ts = int(time_str)
-        # Detect milliseconds (13 digits) vs seconds (10 digits)
-        if ts > 1e12:
-            ts = ts / 1000
-        return float(ts)
-    except ValueError:
-        pass
-
-    # Try ISO format
-    try:
-        dt = datetime.fromisoformat(time_str)
-        return dt.timestamp()
-    except ValueError:
-        pass
-
-    return None
-
-
-def _format_feishu_timestamp(ts: str | int | None) -> str:
-    """Convert Feishu millisecond timestamp to local time string."""
-    if not ts:
-        return ""
-    try:
-        epoch_ms = int(ts)
-        dt = datetime.fromtimestamp(epoch_ms / 1000).astimezone()
-        return dt.strftime("%Y-%m-%d %H:%M:%S")
-    except (ValueError, OSError):
-        return str(ts) if ts else ""
 
 
 # Patterns that indicate rich content needing card rendering
