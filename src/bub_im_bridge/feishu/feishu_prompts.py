@@ -16,6 +16,11 @@ Your response will be rendered in Feishu. Use standard Markdown with these rules
 
 For simple conversational replies, respond naturally without formatting — like a normal person chatting.
 Only use rich formatting (headings, tables, lists) when the content benefits from structure.
+
+When the user asks for data visualization (charts, trends, comparisons, rankings, proportions, \
+dashboards, reports), load the `feishu-card` skill and follow its instructions to generate a \
+Feishu Interactive Card (schema 2.0) with chart/table components. Output the card JSON directly \
+as your entire reply — the channel will automatically detect and send it as an interactive card.
 </output_format>"""
 
 FEISHU_HISTORY_HINT_P2P = """\

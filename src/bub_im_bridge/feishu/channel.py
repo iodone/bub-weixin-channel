@@ -590,12 +590,60 @@ def _needs_card(text: str) -> bool:
     return bool(_RICH_CONTENT_RE.search(text))
 
 
+_CODE_FENCE_RE = re.compile(r"```(?:json)?\s*\n(.*?)\n\s*```", re.DOTALL)
+
+
+def _extract_card_json(text: str) -> str | None:
+    """Try to extract a schema 2.0 card JSON from *text*.
+
+    Handles three cases:
+    1. Pure JSON: ``{"schema": "2.0", "body": {...}}``
+    2. Code-fenced: ``\\`\\`\\`json\\n{...}\\n\\`\\`\\`\\``
+    3. JSON embedded in surrounding text (first ``{`` to last ``}``)
+    """
+    # Case 1: entire text is JSON
+    stripped = text.strip()
+    if stripped.startswith("{"):
+        with contextlib.suppress(json.JSONDecodeError):
+            obj = json.loads(stripped)
+            if isinstance(obj, dict) and obj.get("schema") == "2.0" and "body" in obj:
+                return stripped
+
+    # Case 2: JSON wrapped in code fences
+    m = _CODE_FENCE_RE.search(text)
+    if m:
+        candidate = m.group(1).strip()
+        with contextlib.suppress(json.JSONDecodeError):
+            obj = json.loads(candidate)
+            if isinstance(obj, dict) and obj.get("schema") == "2.0" and "body" in obj:
+                return candidate
+
+    # Case 3: JSON embedded in surrounding text
+    start = text.find("{")
+    end = text.rfind("}")
+    if start != -1 and end > start:
+        candidate = text[start : end + 1]
+        with contextlib.suppress(json.JSONDecodeError):
+            obj = json.loads(candidate)
+            if isinstance(obj, dict) and obj.get("schema") == "2.0" and "body" in obj:
+                return candidate
+
+    return None
+
+
 def _build_outbound_content(text: str) -> tuple[str, str]:
     """Build ``(msg_type, content_json)`` for a Feishu outbound message.
 
+    If *text* is already a valid schema 2.0 card JSON, pass it through as-is.
     Simple plain text → ``text`` message (like a normal human reply).
     Rich content (markdown formatting) → Card JSON 2.0 ``interactive`` message.
     """
+    # Detect complete card JSON produced by LLM (e.g. via feishu-card skill).
+    # LLM may wrap the JSON in ```json ... ``` code fences or add surrounding text.
+    card_json = _extract_card_json(text)
+    if card_json is not None:
+        return "interactive", card_json
+
     if not _needs_card(text):
         return "text", json.dumps({"text": text}, ensure_ascii=False)
 
