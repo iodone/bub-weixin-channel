@@ -41,11 +41,21 @@ async def fetch_message_content(client: lark.Client, message_id: str) -> str | N
 
         data = getattr(resp, "data", None)
         if data:
-            body = getattr(data, "body", None)
+            # GetMessage returns items list; take the first item
+            items = getattr(data, "items", None) or []
+            item = items[0] if items else data
+            body = getattr(item, "body", None)
             content = getattr(body, "content", None) if body else None
             if content:
-                msg_type = getattr(data, "msg_type", None) or "text"
-                return _normalize_text(msg_type, content)
+                msg_type = getattr(item, "msg_type", None) or "text"
+                text = _normalize_text(msg_type, content)
+                # Replace @_user_N mention placeholders with display names
+                for mention in getattr(item, "mentions", None) or []:
+                    key = getattr(mention, "key", None)
+                    name = getattr(mention, "name", None)
+                    if key and name:
+                        text = text.replace(key, f"@{name}")
+                return text
 
     except Exception:
         logger.exception("feishu.api.fetch_message error message_id={}", message_id)
@@ -123,12 +133,21 @@ async def fetch_chat_history(
                     if resolve_names
                     else sender_id
                 )
+                text = _normalize_text(msg_type, content)
+
+                # Replace @_user_N mention placeholders with display names
+                for mention in getattr(item, "mentions", None) or []:
+                    key = getattr(mention, "key", None)
+                    name = getattr(mention, "name", None)
+                    if key and name:
+                        text = text.replace(key, f"@{name}")
+
                 history.append(
                     {
                         "message_id": getattr(item, "message_id", "") or "",
                         "sender_id": sender_id,
                         "sender": sender_name,
-                        "content": _normalize_text(msg_type, content),
+                        "content": text,
                         "create_time": format_feishu_timestamp(
                             getattr(item, "create_time", None)
                         ),
