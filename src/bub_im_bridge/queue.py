@@ -22,19 +22,38 @@ class PriorityMessageQueue:
     - ``cancelled`` flag makes the worker block until explicitly resumed.
     """
 
-    def __init__(self, max_length: int = 0) -> None:
+    def __init__(self, max_length: int = 0, admin_max_length: int = 100) -> None:
         self._heap: list[tuple[int, int, ChannelMessage]] = []
         self._counter = 0
         self._max_length = max_length
+        self._admin_max_length = admin_max_length
         self._event = asyncio.Event()
-        self._cancelled = False
+        self._resume_event = asyncio.Event()
+        self._resume_event.set()  # Initially not cancelled
+        # Per-session cancel state: {session_id: is_cancelled}
+        self._cancelled: dict[str, bool] = {}
 
     # -- public interface (called from channel) --------------------------------
 
-    async def put(self, message: ChannelMessage) -> None:
-        """Enqueue *message*.  Admin messages jump to the front."""
+    async def put(self, message: ChannelMessage) -> bool:
+        """Enqueue *message*.  Admin messages jump to the front.
+
+        Returns True if enqueued successfully, False if dropped due to queue full.
+        """
         priority = 0 if self._is_admin(message) else 1
 
+        # Check admin queue limit
+        if priority == 0 and self._admin_max_length > 0:
+            admin_count = sum(1 for p, _, _ in self._heap if p == 0)
+            if admin_count >= self._admin_max_length:
+                logger.warning(
+                    "queue.admin_full dropped session_id={} content={}",
+                    message.session_id,
+                    message.content[:80],
+                )
+                return False
+
+        # Check normal message queue limit
         if (
             self._max_length > 0
             and len(self._heap) >= self._max_length
@@ -45,11 +64,12 @@ class PriorityMessageQueue:
                 message.session_id,
                 message.content[:80],
             )
-            return
+            return False
 
         heapq.heappush(self._heap, (priority, self._counter, message))
         self._counter += 1
         self._event.set()
+        return True
 
     async def get(self) -> ChannelMessage:
         """Block until an item is available, then return the highest-priority one."""
@@ -61,22 +81,51 @@ class PriorityMessageQueue:
             self._event.clear()
         return msg
 
-    def drain(self) -> list[ChannelMessage]:
-        """Remove and return all pending messages."""
-        items = [heapq.heappop(self._heap)[2] for _ in range(len(self._heap))]
-        self._event.clear()
-        return items
+    def drain(self, session_id: str | None = None) -> list[ChannelMessage]:
+        """Remove and return pending messages.
+
+        If session_id is provided, only drain messages for that session.
+        Otherwise drain all messages (for backward compatibility).
+        """
+        if session_id is None:
+            # Drain all messages
+            items = [heapq.heappop(self._heap)[2] for _ in range(len(self._heap))]
+            self._event.clear()
+            return items
+
+        # Drain only messages for specific session
+        remaining = []
+        drained = []
+        while self._heap:
+            priority, counter, msg = heapq.heappop(self._heap)
+            if msg.session_id == session_id:
+                drained.append(msg)
+            else:
+                remaining.append((priority, counter, msg))
+
+        # Rebuild heap with remaining messages
+        self._heap = remaining
+        heapq.heapify(self._heap)
+        if not self._heap:
+            self._event.clear()
+
+        return drained
 
     # -- cancel / resume --------------------------------------------------------
 
-    @property
-    def is_cancelled(self) -> bool:
-        return self._cancelled
+    def is_cancelled(self, session_id: str) -> bool:
+        """Check if a specific session is cancelled."""
+        return self._cancelled.get(session_id, False)
 
-    def set_cancelled(self, value: bool) -> None:
-        self._cancelled = value
+    def set_cancelled(self, session_id: str, value: bool) -> None:
+        """Set cancel state for a specific session."""
+        self._cancelled[session_id] = value
         if not value:
-            self._event.set()  # wake worker on resume
+            self._resume_event.set()  # wake worker on resume
+
+    async def wait_for_resume(self) -> None:
+        """Wait until resume event is set (used by worker)."""
+        await self._resume_event.wait()
 
     # -- helpers -----------------------------------------------------------------
 
@@ -100,7 +149,7 @@ class PriorityMessageQueue:
 
 
 # ---------------------------------------------------------------------------
-# Configuration helpers
+# Configuration helpers (exported for use in channel modules)
 # ---------------------------------------------------------------------------
 
 
