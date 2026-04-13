@@ -28,10 +28,9 @@ class PriorityMessageQueue:
         self._max_length = max_length
         self._admin_max_length = admin_max_length
         self._event = asyncio.Event()
-        self._resume_event = asyncio.Event()
-        self._resume_event.set()  # Initially not cancelled
-        # Per-session cancel state: {session_id: is_cancelled}
+        # Per-session cancel state and resume events
         self._cancelled: dict[str, bool] = {}
+        self._resume_events: dict[str, asyncio.Event] = {}
 
     # -- public interface (called from channel) --------------------------------
 
@@ -117,27 +116,38 @@ class PriorityMessageQueue:
         """Check if a specific session is cancelled."""
         return self._cancelled.get(session_id, False)
 
+    def cancelled_sessions(self) -> list[str]:
+        """Return list of currently cancelled session IDs."""
+        return [sid for sid, v in self._cancelled.items() if v]
+
     def set_cancelled(self, session_id: str, value: bool) -> None:
         """Set cancel state for a specific session."""
         self._cancelled[session_id] = value
-        if not value:
-            self._resume_event.set()  # wake worker on resume
+        if value:
+            # Ensure a per-session event exists and is cleared (blocked)
+            if session_id not in self._resume_events:
+                self._resume_events[session_id] = asyncio.Event()
+            self._resume_events[session_id].clear()
+        else:
+            # Wake up anyone waiting on this session
+            ev = self._resume_events.get(session_id)
+            if ev is not None:
+                ev.set()
+            # Clean up
+            self._cancelled.pop(session_id, None)
 
-    async def wait_for_resume(self) -> None:
-        """Wait until resume event is set (used by worker)."""
-        await self._resume_event.wait()
+    async def wait_for_resume(self, session_id: str) -> None:
+        """Block until *session_id* is resumed."""
+        ev = self._resume_events.get(session_id)
+        if ev is None:
+            return
+        await ev.wait()
 
     # -- helpers -----------------------------------------------------------------
 
     @staticmethod
     def _is_admin(message: ChannelMessage) -> bool:
-        return PriorityMessageQueue._is_admin_sender(
-            message.context.get("sender_id", "")
-        )
-
-    @staticmethod
-    def _is_admin_sender(sender_id: str) -> bool:
-        return sender_id in _get_admin_users() if sender_id else False
+        return is_admin_sender(message.context.get("sender_id", ""))
 
     @property
     def size(self) -> int:
@@ -172,6 +182,11 @@ def _get_admin_users() -> set[str]:
     if _ADMIN_USERS is None:
         _ADMIN_USERS = _parse_collection(os.environ.get("BUB_ADMIN_USERS", ""))
     return _ADMIN_USERS
+
+
+def is_admin_sender(sender_id: str) -> bool:
+    """Check whether *sender_id* belongs to an admin user."""
+    return sender_id in _get_admin_users() if sender_id else False
 
 
 def get_queue_max_length() -> int:
