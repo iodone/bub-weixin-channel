@@ -315,13 +315,9 @@ class FeishuChannel(Channel):
         ):
             return True, "bot_mentioned"
 
-        # Mention whose display-name contains "bub"
-        if any("bub" in (m.name or "").lower() for m in message.mentions):
-            return True, "bub_name_mentioned"
-
-        # Any @-mention in a group chat
+        # Any @-mention in a group chat - return False to allow future customization
         if message.mentions:
-            return True, "has_mentions"
+            return False, "has_mentions_but_not_me"
 
         return False, "no_mention_in_group"
 
