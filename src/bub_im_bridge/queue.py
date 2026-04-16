@@ -180,7 +180,7 @@ _ADMIN_USERS: set[str] | None = None
 def _get_admin_users() -> set[str]:
     global _ADMIN_USERS
     if _ADMIN_USERS is None:
-        _ADMIN_USERS = _parse_collection(os.environ.get("BUB_ADMIN_USERS", ""))
+        _ADMIN_USERS = _parse_collection(os.environ.get("BUB_FEISHU_ADMIN_USERS", ""))
     return _ADMIN_USERS
 
 
@@ -190,8 +190,8 @@ def is_admin_sender(sender_id: str) -> bool:
 
 
 def get_queue_max_length() -> int:
-    """Read BUB_QUEUE_MAX_LENGTH from env.  0 means unlimited."""
-    raw = os.environ.get("BUB_QUEUE_MAX_LENGTH", "0")
+    """Read BUB_FEISHU_QUEUE_MAX_LENGTH from env.  0 means unlimited."""
+    raw = os.environ.get("BUB_FEISHU_QUEUE_MAX_LENGTH", "0")
     try:
         return max(int(raw), 0)
     except ValueError:
