@@ -230,19 +230,12 @@ class FeishuChannel(Channel):
                 message = await self._queue.get()
             except asyncio.CancelledError:
                 break
-
-            session_id = message.session_id
-
-            # Check if this session is cancelled
-            if self._queue.is_cancelled(session_id):
-                await self._queue.wait_for_resume(session_id)
-                if self._queue.is_cancelled(session_id):
-                    continue
-
             try:
                 await self._framework_on_receive(message)
             except Exception:
-                logger.exception("feishu.queue_worker error session_id={}", session_id)
+                logger.exception(
+                    "feishu.queue_worker error session_id={}", message.session_id
+                )
 
     def _get_channel_manager(self) -> Any | None:
         """Access the framework's ``ChannelManager`` via internals.
@@ -405,9 +398,6 @@ class FeishuChannel(Channel):
         if is_admin and text == ",cancel":
             await self._handle_cancel(message)
             return
-        if is_admin and text == ",resume":
-            await self._handle_resume(message)
-            return
 
         # Build the channel message
         channel_msg = await self._build_channel_message(
@@ -510,7 +500,6 @@ class FeishuChannel(Channel):
         affected_sessions.update(running_sessions)
 
         for sid in affected_sessions:
-            self._queue.set_cancelled(sid, True)
             if self._framework is not None:
                 await self._framework.quit_via_router(sid)
 
@@ -539,7 +528,7 @@ class FeishuChannel(Channel):
                 session_id=session_id,
                 channel=self.name,
                 chat_id=message.chat_id,
-                content=f"已全局取消 {len(drained)} 条排队消息，影响 {len(affected_sessions)} 个会话。发送 ,resume 恢复。",
+                content=f"已全局取消 {len(drained)} 条排队消息，影响 {len(affected_sessions)} 个会话。",
                 is_active=True,
             )
         )
@@ -555,35 +544,6 @@ class FeishuChannel(Channel):
         except (json.JSONDecodeError, TypeError):
             pass
         return None
-
-    async def _handle_resume(self, message: FeishuInboundMessage) -> None:
-        """Global resume: resume ALL cancelled sessions.
-
-        Only admin can execute this command.
-        """
-        # Resume all cancelled sessions
-        cancelled_sessions = self._queue.cancelled_sessions()
-        for session_id in cancelled_sessions:
-            self._queue.set_cancelled(session_id, False)
-
-        logger.info(
-            "feishu.resume sender={} resumed_sessions={}",
-            message.sender_display,
-            len(cancelled_sessions),
-        )
-
-        # Reply directly (bypass queue)
-        session_id = f"feishu:{message.chat_id}"
-        self._last_message_id[message.chat_id] = message.message_id
-        await self.send(
-            ChannelMessage(
-                session_id=session_id,
-                channel=self.name,
-                chat_id=message.chat_id,
-                content=f"已恢复 {len(cancelled_sessions)} 个会话的消息处理。",
-                is_active=True,
-            )
-        )
 
     # -- outbound ------------------------------------------------------------
 

@@ -181,75 +181,7 @@ async def test_drain_by_session():
 
 
 # ---------------------------------------------------------------------------
-# cancel / resume – per-session isolation
-# ---------------------------------------------------------------------------
-
-
-def test_cancel_resume_lifecycle():
-    q = PriorityMessageQueue()
-    assert q.is_cancelled("s1") is False
-
-    q.set_cancelled("s1", True)
-    q.set_cancelled("s2", True)
-    assert set(q.cancelled_sessions()) == {"s1", "s2"}
-
-    q.set_cancelled("s1", False)
-    assert q.is_cancelled("s1") is False
-    assert q.cancelled_sessions() == ["s2"]
-
-
-async def test_wait_for_resume_blocks_and_wakes():
-    q = PriorityMessageQueue()
-    q.set_cancelled("s1", True)
-    woke = False
-
-    async def waiter():
-        nonlocal woke
-        await q.wait_for_resume("s1")
-        woke = True
-
-    task = asyncio.create_task(waiter())
-    await asyncio.sleep(0.05)
-    assert woke is False
-
-    q.set_cancelled("s1", False)
-    await asyncio.sleep(0.05)
-    assert woke is True
-    await task
-
-
-async def test_resume_session_isolation():
-    """Resuming s1 must NOT wake a waiter on s2."""
-    q = PriorityMessageQueue()
-    q.set_cancelled("s1", True)
-    q.set_cancelled("s2", True)
-    s2_woke = False
-
-    async def waiter():
-        nonlocal s2_woke
-        await q.wait_for_resume("s2")
-        s2_woke = True
-
-    task = asyncio.create_task(waiter())
-    await asyncio.sleep(0.05)
-
-    q.set_cancelled("s1", False)
-    await asyncio.sleep(0.05)
-    assert s2_woke is False
-
-    q.set_cancelled("s2", False)
-    await asyncio.sleep(0.05)
-    assert s2_woke is True
-    await task
-
-
-async def test_wait_for_resume_unknown_session():
-    q = PriorityMessageQueue()
-    await asyncio.wait_for(q.wait_for_resume("never"), timeout=0.1)
-
-
-# ---------------------------------------------------------------------------
-# Worker integration – simulates _queue_worker forwarding + cancel skip
+# Worker integration – simulates _queue_worker forwarding
 # ---------------------------------------------------------------------------
 
 
@@ -267,10 +199,6 @@ async def test_worker_forwards_messages():
                 msg = await q.get()
             except asyncio.CancelledError:
                 break
-            if q.is_cancelled(msg.session_id):
-                await q.wait_for_resume(msg.session_id)
-                if q.is_cancelled(msg.session_id):
-                    continue
             await fake_handler(msg)
 
     task = asyncio.create_task(worker())
@@ -280,11 +208,11 @@ async def test_worker_forwards_messages():
 
     assert received == ["a", "b"]
     task.cancel()
-    await task  # worker catches CancelledError internally via break
+    await task
 
 
-async def test_worker_skips_cancelled_session():
-    """Cancelled session messages are held until resume."""
+async def test_drain_stops_pending_messages():
+    """drain() removes messages before worker can process them."""
     q = PriorityMessageQueue()
     received: list[str] = []
 
@@ -297,25 +225,22 @@ async def test_worker_skips_cancelled_session():
                 msg = await q.get()
             except asyncio.CancelledError:
                 break
-            if q.is_cancelled(msg.session_id):
-                await q.wait_for_resume(msg.session_id)
-                if q.is_cancelled(msg.session_id):
-                    continue
+            # Simulate slow processing
+            await asyncio.sleep(0.2)
             await fake_handler(msg)
 
     task = asyncio.create_task(worker())
+    await q.put(_msg("processing"))
+    await q.put(_msg("queued1"))
+    await q.put(_msg("queued2"))
+    await asyncio.sleep(0.05)  # worker picks up "processing", others still in queue
 
-    # Cancel s1, then enqueue
-    q.set_cancelled("s1", True)
-    await q.put(_msg("blocked", session_id="s1"))
-    await asyncio.sleep(0.1)
-    assert received == []  # message held
+    drained = q.drain()
+    assert len(drained) == 2
+    assert q.size == 0
 
-    # Resume s1 and enqueue another to flush
-    q.set_cancelled("s1", False)
-    await q.put(_msg("after_resume", session_id="s1"))
-    await asyncio.sleep(0.1)
-    assert "after_resume" in received
+    await asyncio.sleep(0.3)  # wait for "processing" to finish
+    assert received == ["processing"]  # queued1/queued2 never processed
 
     task.cancel()
     await task
