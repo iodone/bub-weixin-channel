@@ -400,7 +400,6 @@ class FeishuChannel(Channel):
 
         # Check if sender is admin
         is_admin = is_admin_sender(sender_id)
-        is_dm = message.chat_type == "p2p"
 
         # Intercept ,cancel command (global clear for admin only)
         if is_admin and text == ",cancel":
@@ -415,11 +414,8 @@ class FeishuChannel(Channel):
             message, text, sender_id, session_id
         )
 
-        # Admin DM → bypass queue + debounce, execute immediately
-        if is_admin and is_dm:
-            if self._framework is not None:
-                await self._framework.quit_via_router(session_id)
-
+        # Admin → bypass queue + debounce, execute immediately
+        if is_admin:
             fq = self._get_framework_queue()
             if fq is not None:
                 await fq.put(channel_msg)
