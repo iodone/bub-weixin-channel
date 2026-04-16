@@ -120,6 +120,7 @@ class FeishuChannel(Channel):
             os.environ.get("BUB_FEISHU_ALLOW_CHATS", "")
         )
         self._bot_open_id = os.environ.get("BUB_FEISHU_BOT_OPEN_ID", "")
+        self._bot_name = os.environ.get("BUB_FEISHU_BOT_NAME", "").lower()
 
         # Runtime state
         self._api_client: lark.Client | None = None
@@ -363,9 +364,11 @@ class FeishuChannel(Channel):
         ):
             return True, "bot_mentioned"
 
-        # Mention whose display-name contains "bub"
-        if any("bub" in (m.name or "").lower() for m in message.mentions):
-            return True, "bub_name_mentioned"
+        # Mention whose display-name matches configured bot name
+        if self._bot_name and any(
+            self._bot_name in (m.name or "").lower() for m in message.mentions
+        ):
+            return True, "bot_name_mentioned"
 
         if message.mentions:
             return False, "has_mentions_but_not_me"
