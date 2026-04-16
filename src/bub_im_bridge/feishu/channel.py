@@ -104,12 +104,9 @@ class FeishuChannel(Channel):
         self._framework = framework
         self._framework_on_receive = on_receive  # Original framework handler
 
-        # Priority queue for ALL messages (with debouncing built-in)
+        # Priority queue for ALL non-admin-DM messages
         self._queue = PriorityMessageQueue(max_length=get_queue_max_length())
         self._queue_worker_task: asyncio.Task | None = None
-
-        # Message buffer (per session) - shared between worker and cancel handler
-        self._message_buffer: dict[str, list[ChannelMessage]] = {}
 
         # Config – read once at init
         self._app_id = os.environ.get("BUB_FEISHU_APP_ID", "")
@@ -136,8 +133,7 @@ class FeishuChannel(Channel):
 
     @property
     def needs_debounce(self) -> bool:
-        """Disable framework's BufferedMessageHandler - we implement our own buffering."""
-        return False
+        return True
 
     async def start(self, stop_event: asyncio.Event) -> None:
         if not self._app_id or not self._app_secret:
@@ -222,12 +218,13 @@ class FeishuChannel(Channel):
         except Exception:
             logger.exception("feishu.ws unexpected error")
 
-    # -- queue worker with smart message merging ------------------------------
+    # -- queue worker -----------------------------------------------------------
 
     async def _queue_worker(self) -> None:
         """Pull messages from the priority queue and forward to framework.
 
-        Implements smart message merging: only merge when framework is busy processing.
+        Messages are forwarded to ``ChannelManager.on_receive`` which routes them
+        through the native ``BufferedMessageHandler`` (debounce + merge).
         """
         while True:
             try:
@@ -240,73 +237,39 @@ class FeishuChannel(Channel):
             # Check if this session is cancelled
             if self._queue.is_cancelled(session_id):
                 await self._queue.wait_for_resume(session_id)
-                # After resume, check again if still cancelled
                 if self._queue.is_cancelled(session_id):
                     continue
 
             try:
-                # Check if framework has running tasks for this session
-                has_running_task = self._framework_has_running_task(session_id)
-
-                if has_running_task:
-                    # Framework is busy → buffer this message for later merging
-                    self._message_buffer.setdefault(session_id, []).append(message)
-                    logger.debug(
-                        "feishu.queue_worker buffering session_id={} buffer_size={}",
-                        session_id,
-                        len(self._message_buffer[session_id]),
-                    )
-                else:
-                    # Framework is idle → process now
-                    if (
-                        session_id in self._message_buffer
-                        and self._message_buffer[session_id]
-                    ):
-                        # Merge buffered messages + current message
-                        self._message_buffer[session_id].append(message)
-                        merged = ChannelMessage.from_batch(
-                            self._message_buffer[session_id]
-                        )
-                        logger.info(
-                            "feishu.queue_worker merging session_id={} count={}",
-                            session_id,
-                            len(self._message_buffer[session_id]),
-                        )
-                        self._message_buffer[session_id].clear()
-                        await self._framework_on_receive(merged)
-                    else:
-                        # No buffered messages → send directly
-                        await self._framework_on_receive(message)
+                await self._framework_on_receive(message)
             except Exception:
                 logger.exception("feishu.queue_worker error session_id={}", session_id)
 
-    def _framework_has_running_task(self, session_id: str) -> bool:
-        """Check if framework has running tasks for the given session.
+    def _get_framework_queue(self) -> asyncio.Queue | None:
+        """Access the framework's internal asyncio.Queue.
 
-        NOTE: This accesses bub framework internals (``_outbound_router._ongoing_tasks``).
-        If the framework refactors these attributes, this method silently falls back to
-        ``False`` (messages will never be merged, but still processed correctly).
-        Consider upstreaming a ``has_session_task()`` API to the bub framework.
+        NOTE: This accesses bub framework internals (``_outbound_router._messages``).
+        If the framework refactors these attributes, this returns ``None`` and the
+        caller should fall back to ``_framework_on_receive`` (which adds debounce).
+        Consider upstreaming a direct-enqueue API to the bub framework.
         """
-        ongoing = self._framework_ongoing_tasks()
-        return len(ongoing.get(session_id, set())) > 0
-
-    def _framework_running_sessions(self) -> set[str]:
-        """Return session IDs that have in-flight framework tasks.
-
-        Same caveat as ``_framework_has_running_task`` regarding framework internals.
-        """
-        ongoing = self._framework_ongoing_tasks()
-        return {sid for sid, tasks in ongoing.items() if tasks}
-
-    def _framework_ongoing_tasks(self) -> dict[str, set]:
-        """Access ChannelManager._ongoing_tasks via framework internals."""
         if self._framework is None:
-            return {}
+            return None
         manager = getattr(self._framework, "_outbound_router", None)
         if manager is None:
-            return {}
-        return getattr(manager, "_ongoing_tasks", {})
+            return None
+        q = getattr(manager, "_messages", None)
+        return q if isinstance(q, asyncio.Queue) else None
+
+    def _framework_running_sessions(self) -> set[str]:
+        """Return session IDs that have in-flight framework tasks."""
+        if self._framework is None:
+            return set()
+        manager = getattr(self._framework, "_outbound_router", None)
+        if manager is None:
+            return set()
+        ongoing = getattr(manager, "_ongoing_tasks", {})
+        return {sid for sid, tasks in ongoing.items() if tasks}
 
     # -- inbound pipeline ----------------------------------------------------
 
@@ -453,22 +416,20 @@ class FeishuChannel(Channel):
             message, text, sender_id, session_id
         )
 
-        # Admin DM: bypass queue, execute immediately
+        # Admin DM: bypass both PriorityQueue and BufferedMessageHandler,
+        # put directly into the framework's internal asyncio.Queue for
+        # immediate execution.
         if is_admin and is_dm:
             # Cancel any running task for this session first
             if self._framework is not None:
                 await self._framework.quit_via_router(session_id)
 
-            # Discard stale buffered messages for this session
-            self._message_buffer.pop(session_id, None)
-
-            # Execute immediately without queueing
-            try:
+            framework_queue = self._get_framework_queue()
+            if framework_queue is not None:
+                await framework_queue.put(channel_msg)
+            else:
+                # Fallback: go through normal handler (will be debounced)
                 await self._framework_on_receive(channel_msg)
-            except Exception:
-                logger.exception(
-                    "feishu.dispatch_admin_direct error session_id={}", session_id
-                )
             return
 
         # Normal flow: enqueue message with priority
@@ -567,23 +528,14 @@ class FeishuChannel(Channel):
         and pause ALL affected sessions.
 
         Only admin can execute this command.
-        Clears PriorityQueue, worker buffer, and in-flight framework tasks.
+        Clears PriorityQueue and cancels in-flight framework tasks.
         """
-        # 1. Drain ALL messages from the PriorityQueue
-        drained_from_queue = self._queue.drain()
-
-        # 2. Drain ALL messages from the worker buffer
-        drained_from_buffer = []
-        for session_buffer in self._message_buffer.values():
-            drained_from_buffer.extend(session_buffer)
-        self._message_buffer.clear()
-
-        # Total drained messages
-        all_drained = drained_from_queue + drained_from_buffer
+        # Drain ALL messages from the PriorityQueue
+        drained = self._queue.drain()
 
         # Collect ALL affected sessions: those with queued messages
         # AND those with running framework tasks
-        affected_sessions = set(msg.session_id for msg in all_drained)
+        affected_sessions = set(msg.session_id for msg in drained)
         running_sessions = self._framework_running_sessions()
         affected_sessions.update(running_sessions)
 
@@ -594,11 +546,9 @@ class FeishuChannel(Channel):
                 await self._framework.quit_via_router(session_id)
 
         logger.info(
-            "feishu.cancel sender={} drained_queue={} drained_buffer={} total={} sessions={}",
+            "feishu.cancel sender={} drained={} sessions={}",
             message.sender_display,
-            len(drained_from_queue),
-            len(drained_from_buffer),
-            len(all_drained),
+            len(drained),
             len(affected_sessions),
         )
 
@@ -610,7 +560,7 @@ class FeishuChannel(Channel):
                 session_id=session_id,
                 channel=self.name,
                 chat_id=message.chat_id,
-                content=f"已全局取消 {len(all_drained)} 条排队消息，影响 {len(affected_sessions)} 个会话。发送 ,resume 恢复。",
+                content=f"已全局取消 {len(drained)} 条排队消息，影响 {len(affected_sessions)} 个会话。发送 ,resume 恢复。",
                 is_active=True,
             )
         )
