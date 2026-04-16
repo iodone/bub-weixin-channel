@@ -402,6 +402,11 @@ class FeishuChannel(Channel):
 
         # Admin → bypass queue + debounce, execute immediately
         if is_admin:
+            logger.info(
+                "feishu.dispatch admin immediate session_id={} content={}",
+                session_id,
+                channel_msg.content[:80],
+            )
             fq = self._get_framework_queue()
             if fq is not None:
                 await fq.put(channel_msg)
@@ -411,8 +416,19 @@ class FeishuChannel(Channel):
 
         # Normal flow: enqueue message with priority
         enqueued = await self._queue.put(channel_msg)
-
-        if not enqueued:
+        if enqueued:
+            logger.info(
+                "feishu.dispatch enqueued session_id={} queue_size={} content={}",
+                session_id,
+                self._queue.size,
+                channel_msg.content[:80],
+            )
+        else:
+            logger.warning(
+                "feishu.dispatch dropped (queue full) session_id={} content={}",
+                session_id,
+                channel_msg.content[:80],
+            )
             self._send_queue_full_notification(message)
 
     async def _build_channel_message(
