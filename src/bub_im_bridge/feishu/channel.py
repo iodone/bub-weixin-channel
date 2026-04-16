@@ -180,7 +180,6 @@ class FeishuChannel(Channel):
         )
         self._ws_thread.start()
 
-        # Start queue worker (handles ALL messages with priority + debouncing)
         self._queue_worker_task = asyncio.create_task(self._queue_worker())
         logger.info(
             "feishu.start listening queue_max_length={}",
@@ -245,30 +244,30 @@ class FeishuChannel(Channel):
             except Exception:
                 logger.exception("feishu.queue_worker error session_id={}", session_id)
 
-    def _get_framework_queue(self) -> asyncio.Queue | None:
-        """Access the framework's internal asyncio.Queue.
+    def _get_channel_manager(self) -> Any | None:
+        """Access the framework's ``ChannelManager`` via internals.
 
-        NOTE: This accesses bub framework internals (``_outbound_router._messages``).
-        If the framework refactors these attributes, this returns ``None`` and the
-        caller should fall back to ``_framework_on_receive`` (which adds debounce).
-        Consider upstreaming a direct-enqueue API to the bub framework.
+        Returns ``None`` if framework is not bound or attributes changed.
+        Callers must handle the ``None`` case gracefully.
         """
         if self._framework is None:
             return None
-        manager = getattr(self._framework, "_outbound_router", None)
-        if manager is None:
+        return getattr(self._framework, "_outbound_router", None)
+
+    def _get_framework_queue(self) -> asyncio.Queue | None:
+        """Access ``ChannelManager._messages`` for direct enqueue (bypass debounce)."""
+        mgr = self._get_channel_manager()
+        if mgr is None:
             return None
-        q = getattr(manager, "_messages", None)
+        q = getattr(mgr, "_messages", None)
         return q if isinstance(q, asyncio.Queue) else None
 
     def _framework_running_sessions(self) -> set[str]:
         """Return session IDs that have in-flight framework tasks."""
-        if self._framework is None:
+        mgr = self._get_channel_manager()
+        if mgr is None:
             return set()
-        manager = getattr(self._framework, "_outbound_router", None)
-        if manager is None:
-            return set()
-        ongoing = getattr(manager, "_ongoing_tasks", {})
+        ongoing = getattr(mgr, "_ongoing_tasks", {})
         return {sid for sid, tasks in ongoing.items() if tasks}
 
     # -- inbound pipeline ----------------------------------------------------
@@ -416,28 +415,23 @@ class FeishuChannel(Channel):
             message, text, sender_id, session_id
         )
 
-        # Admin DM: bypass both PriorityQueue and BufferedMessageHandler,
-        # put directly into the framework's internal asyncio.Queue for
-        # immediate execution.
+        # Admin DM → bypass queue + debounce, execute immediately
         if is_admin and is_dm:
-            # Cancel any running task for this session first
             if self._framework is not None:
                 await self._framework.quit_via_router(session_id)
 
-            framework_queue = self._get_framework_queue()
-            if framework_queue is not None:
-                await framework_queue.put(channel_msg)
+            fq = self._get_framework_queue()
+            if fq is not None:
+                await fq.put(channel_msg)
             else:
-                # Fallback: go through normal handler (will be debounced)
-                await self._framework_on_receive(channel_msg)
+                await self._framework_on_receive(channel_msg)  # fallback (debounced)
             return
 
         # Normal flow: enqueue message with priority
         enqueued = await self._queue.put(channel_msg)
 
-        # If queue was full, send notification to user
         if not enqueued:
-            await self._send_queue_full_notification(message)
+            self._send_queue_full_notification(message)
 
     async def _build_channel_message(
         self, message: FeishuInboundMessage, text: str, sender_id: str, session_id: str
@@ -495,31 +489,15 @@ class FeishuChannel(Channel):
             context=context,
         )
 
-    async def _send_queue_full_notification(
-        self, message: FeishuInboundMessage
-    ) -> None:
-        """Send a notification when queue is full.
-
-        Does NOT update ``_last_message_id`` so that the framework's real reply
-        still goes to the user's actual question, not this notification.
-        """
-        session_id = f"feishu:{message.chat_id}"
-        saved = self._last_message_id.get(message.chat_id)
-        self._last_message_id[message.chat_id] = message.message_id
-        await self.send(
-            ChannelMessage(
-                session_id=session_id,
-                channel=self.name,
-                chat_id=message.chat_id,
-                content="当前排队已满，消息已被丢弃。请稍后再试。",
-                is_active=True,
-            )
+    def _send_queue_full_notification(self, message: FeishuInboundMessage) -> None:
+        """Reply directly to the dropped message without touching ``_last_message_id``."""
+        self._reply_message(
+            message.message_id,
+            "text",
+            json.dumps(
+                {"text": "当前排队已满，消息已被丢弃。请稍后再试。"}, ensure_ascii=False
+            ),
         )
-        # Restore so framework replies target the original message
-        if saved is not None:
-            self._last_message_id[message.chat_id] = saved
-        else:
-            self._last_message_id.pop(message.chat_id, None)
 
     # -- admin cancel / resume ------------------------------------------------
 
