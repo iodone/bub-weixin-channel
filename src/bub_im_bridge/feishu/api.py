@@ -19,7 +19,11 @@ from loguru import logger
 
 
 async def fetch_message_content(client: lark.Client, message_id: str) -> str | None:
-    """Fetch the text content of a single message by ID."""
+    """Fetch the text content of a single message by ID.
+
+    Uses ``GET /open-apis/im/v1/messages/:message_id``.
+    Requires ``im:message`` or ``im:message:readonly`` permission.
+    """
     api = _get_message_api(client)
     if api is None or not message_id:
         return None
@@ -40,22 +44,36 @@ async def fetch_message_content(client: lark.Client, message_id: str) -> str | N
             return None
 
         data = getattr(resp, "data", None)
-        if data:
-            # GetMessage returns items list; take the first item
-            items = getattr(data, "items", None) or []
-            item = items[0] if items else data
-            body = getattr(item, "body", None)
-            content = getattr(body, "content", None) if body else None
-            if content:
-                msg_type = getattr(item, "msg_type", None) or "text"
-                text = _normalize_text(msg_type, content)
-                # Replace @_user_N mention placeholders with display names
-                for mention in getattr(item, "mentions", None) or []:
-                    key = getattr(mention, "key", None)
-                    name = getattr(mention, "name", None)
-                    if key and name:
-                        text = text.replace(key, f"@{name}")
-                return text
+        if not data:
+            logger.warning("feishu.api.fetch_message no data message_id={}", message_id)
+            return None
+
+        items = getattr(data, "items", None) or []
+        if not items:
+            logger.warning(
+                "feishu.api.fetch_message empty items message_id={}", message_id
+            )
+            return None
+
+        item = items[0]
+        body = getattr(item, "body", None)
+        content = getattr(body, "content", None) if body else None
+        if not content:
+            logger.debug(
+                "feishu.api.fetch_message no body/content message_id={} msg_type={}",
+                message_id,
+                getattr(item, "msg_type", None),
+            )
+            return None
+
+        msg_type = getattr(item, "msg_type", None) or "text"
+        text = _normalize_text(msg_type, content)
+        for mention in getattr(item, "mentions", None) or []:
+            key = getattr(mention, "key", None)
+            name = getattr(mention, "name", None)
+            if key and name:
+                text = text.replace(key, f"@{name}")
+        return text
 
     except Exception:
         logger.exception("feishu.api.fetch_message error message_id={}", message_id)

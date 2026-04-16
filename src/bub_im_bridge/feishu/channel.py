@@ -273,16 +273,15 @@ class FeishuChannel(Channel):
             if message is None:
                 return
 
-            if message.is_group:
-                logger.info(
-                    "feishu.incoming chat_type={} chat_id={} sender={}({}) mentions={} text={}",
-                    message.chat_type,
-                    message.chat_id,
-                    message.sender_display,
-                    message.sender_open_id,
-                    len(message.mentions),
-                    message.text[:80],
-                )
+            logger.info(
+                "feishu.incoming chat_type={} chat_id={} sender={}({}) mentions={} text={}",
+                message.chat_type,
+                message.chat_id,
+                message.sender_display,
+                message.sender_open_id,
+                len(message.mentions),
+                message.text[:80],
+            )
 
             skip_reason = self._should_skip(message)
             if skip_reason:
@@ -402,6 +401,11 @@ class FeishuChannel(Channel):
 
         # Admin → bypass queue + debounce, execute immediately
         if is_admin:
+            logger.info(
+                "feishu.dispatch admin immediate session_id={} content={}",
+                session_id,
+                channel_msg.content,
+            )
             fq = self._get_framework_queue()
             if fq is not None:
                 await fq.put(channel_msg)
@@ -411,8 +415,19 @@ class FeishuChannel(Channel):
 
         # Normal flow: enqueue message with priority
         enqueued = await self._queue.put(channel_msg)
-
-        if not enqueued:
+        if enqueued:
+            logger.info(
+                "feishu.dispatch enqueued session_id={} queue_size={} content={}",
+                session_id,
+                self._queue.size,
+                channel_msg.content[:80],
+            )
+        else:
+            logger.warning(
+                "feishu.dispatch dropped (queue full) session_id={} content={}",
+                session_id,
+                channel_msg.content[:80],
+            )
             self._send_queue_full_notification(message)
 
     async def _build_channel_message(
@@ -436,6 +451,11 @@ class FeishuChannel(Channel):
             quoted_message = await fetch_message_content(
                 self._api_client, message.parent_id
             )
+            if not quoted_message:
+                logger.warning(
+                    "feishu.dispatch quoted message fetch returned empty parent_id={}",
+                    message.parent_id,
+                )
 
         history_hint = (
             FEISHU_HISTORY_HINT_GROUP if message.is_group else FEISHU_HISTORY_HINT_P2P
