@@ -273,16 +273,15 @@ class FeishuChannel(Channel):
             if message is None:
                 return
 
-            if message.is_group:
-                logger.info(
-                    "feishu.incoming chat_type={} chat_id={} sender={}({}) mentions={} text={}",
-                    message.chat_type,
-                    message.chat_id,
-                    message.sender_display,
-                    message.sender_open_id,
-                    len(message.mentions),
-                    message.text[:80],
-                )
+            logger.info(
+                "feishu.incoming chat_type={} chat_id={} sender={}({}) mentions={} text={}",
+                message.chat_type,
+                message.chat_id,
+                message.sender_display,
+                message.sender_open_id,
+                len(message.mentions),
+                message.text[:80],
+            )
 
             skip_reason = self._should_skip(message)
             if skip_reason:
