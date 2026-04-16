@@ -404,7 +404,7 @@ class FeishuChannel(Channel):
             logger.info(
                 "feishu.dispatch admin immediate session_id={} content={}",
                 session_id,
-                channel_msg.content[:80],
+                channel_msg.content,
             )
             fq = self._get_framework_queue()
             if fq is not None:
