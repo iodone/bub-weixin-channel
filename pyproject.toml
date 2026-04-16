@@ -5,7 +5,7 @@ description = "WeChat and Feishu channel plugins for Bub framework"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "bub>=0.3.1",
+    "bub>=0.3.5",
     "weixin-agent-sdk @ git+https://github.com/iodone/weixin-agent-sdk",
     "lark-oapi>=1.3.0",
 ]
@@ -14,16 +14,22 @@ dependencies = [
 weixin_channel = "bub_im_bridge.weixin.plugin:WeixinPlugin"
 feishu_channel = "bub_im_bridge.feishu.plugin:FeishPlugin"
 
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.24"]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/bub_im_bridge"]
+packages = ["src/bub_im_bridge", "src/skills"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "src/skills/feishu-card" = "skills/feishu-card"
 
 [tool.hatch.metadata]
 allow-direct-references = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
 
