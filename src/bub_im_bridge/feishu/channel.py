@@ -501,23 +501,28 @@ class FeishuChannel(Channel):
         """Global cancel: drain ALL queued messages, cancel ALL running tasks,
         and pause ALL affected sessions.
 
-        Only admin can execute this command.
-        Clears PriorityQueue and cancels in-flight framework tasks.
+        Replies to each cancelled message individually so users get notified.
         """
-        # Drain ALL messages from the PriorityQueue
         drained = self._queue.drain()
 
-        # Collect ALL affected sessions: those with queued messages
-        # AND those with running framework tasks
         affected_sessions = set(msg.session_id for msg in drained)
         running_sessions = self._framework_running_sessions()
         affected_sessions.update(running_sessions)
 
-        # Set cancelled for all affected sessions and cancel in-flight tasks
-        for session_id in affected_sessions:
-            self._queue.set_cancelled(session_id, True)
+        for sid in affected_sessions:
+            self._queue.set_cancelled(sid, True)
             if self._framework is not None:
-                await self._framework.quit_via_router(session_id)
+                await self._framework.quit_via_router(sid)
+
+        # Notify each cancelled message's sender
+        for msg in drained:
+            mid = self._extract_message_id(msg)
+            if mid:
+                self._reply_message(
+                    mid,
+                    "text",
+                    json.dumps({"text": "此消息已被管理员取消。"}, ensure_ascii=False),
+                )
 
         logger.info(
             "feishu.cancel sender={} drained={} sessions={}",
@@ -526,7 +531,7 @@ class FeishuChannel(Channel):
             len(affected_sessions),
         )
 
-        # Reply directly (bypass queue)
+        # Confirm to admin
         session_id = f"feishu:{message.chat_id}"
         self._last_message_id[message.chat_id] = message.message_id
         await self.send(
@@ -538,6 +543,18 @@ class FeishuChannel(Channel):
                 is_active=True,
             )
         )
+
+    @staticmethod
+    def _extract_message_id(msg: ChannelMessage) -> str | None:
+        """Extract feishu message_id from a ChannelMessage's content JSON."""
+        try:
+            data = json.loads(msg.content)
+            if isinstance(data, dict):
+                mid = data.get("message_id")
+                return mid if isinstance(mid, str) and mid else None
+        except (json.JSONDecodeError, TypeError):
+            pass
+        return None
 
     async def _handle_resume(self, message: FeishuInboundMessage) -> None:
         """Global resume: resume ALL cancelled sessions.
