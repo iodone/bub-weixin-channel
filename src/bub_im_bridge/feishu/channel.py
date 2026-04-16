@@ -344,7 +344,8 @@ class FeishuChannel(Channel):
         Returns ``(is_active, reason)`` – *reason* is always populated for logging.
 
         For p2p (single chat): always active.
-        For group chat: only active if @mentioned or has quoted message (parent_id).
+        For group chat: only active if @mentioned.
+        Quoted messages (parent_id) provide context but do not activate on their own.
         """
         if message.chat_type == "p2p":
             return True, "p2p"
@@ -356,17 +357,16 @@ class FeishuChannel(Channel):
         if text.startswith(",") or text.startswith("/"):
             return True, "command"
 
-        # Quoted messages in group chat should be processed (reply to bot's message)
-        if message.parent_id:
-            return True, "quoted_message"
-
-        # Exact bot open_id match
+        # Exact bot open_id match (with or without quoted message)
         if self._bot_open_id and any(
             m.open_id == self._bot_open_id for m in message.mentions
         ):
             return True, "bot_mentioned"
 
-        # Any @-mention in a group chat - return False to allow future customization
+        # Mention whose display-name contains "bub"
+        if any("bub" in (m.name or "").lower() for m in message.mentions):
+            return True, "bub_name_mentioned"
+
         if message.mentions:
             return False, "has_mentions_but_not_me"
 
