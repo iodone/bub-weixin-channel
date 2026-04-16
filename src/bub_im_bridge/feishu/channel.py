@@ -436,6 +436,11 @@ class FeishuChannel(Channel):
             quoted_message = await fetch_message_content(
                 self._api_client, message.parent_id
             )
+            if not quoted_message:
+                logger.warning(
+                    "feishu.dispatch quoted message fetch returned empty parent_id={}",
+                    message.parent_id,
+                )
 
         history_hint = (
             FEISHU_HISTORY_HINT_GROUP if message.is_group else FEISHU_HISTORY_HINT_P2P
