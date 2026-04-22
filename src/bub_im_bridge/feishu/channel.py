@@ -6,13 +6,17 @@ import asyncio
 import contextlib
 import json
 import os
+import random
 import re
 import threading
+import time
 from dataclasses import dataclass, field
 from typing import Any, ClassVar
 
 import lark_oapi as lark
 from lark_oapi.api.im.v1 import (
+    CreateMessageReactionRequest,
+    CreateMessageReactionRequestBody,
     CreateMessageRequest,
     CreateMessageRequestBody,
     ReplyMessageRequest,
@@ -131,6 +135,9 @@ class FeishuChannel(Channel):
         # Track last inbound message_id per chat so ``send`` can reply.
         # (The bub framework does not forward ``context`` to outbound messages.)
         self._last_message_id: dict[str, str] = {}
+        
+        # Track message start time for elapsed time calculation
+        self._message_start_time: dict[str, float] = {}
 
     @property
     def needs_debounce(self) -> bool:
@@ -382,6 +389,12 @@ class FeishuChannel(Channel):
 
         # Remember for reply
         self._last_message_id[message.chat_id] = message.message_id
+        
+        # Send random reaction to acknowledge message received
+        self._add_random_reaction(message.message_id)
+        
+        # Record start time for elapsed time calculation
+        self._message_start_time[message.message_id] = time.time()
 
         text = message.text.strip()
 
@@ -578,9 +591,17 @@ class FeishuChannel(Channel):
         if not text:
             return
 
-        msg_type, content_json = _build_outbound_content(text)
-
+        # Calculate elapsed time if we have start time
         reply_to = self._last_message_id.get(chat_id)
+        elapsed_seconds = None
+        if reply_to and reply_to in self._message_start_time:
+            start_time = self._message_start_time[reply_to]
+            elapsed_seconds = time.time() - start_time
+            # Clean up start time record
+            del self._message_start_time[reply_to]
+
+        msg_type, content_json = _build_outbound_content(text, elapsed_seconds)
+
         if reply_to:
             self._reply_message(reply_to, msg_type, content_json)
         else:
@@ -589,6 +610,61 @@ class FeishuChannel(Channel):
                 chat_id,
             )
             self._create_message(chat_id, msg_type, content_json)
+
+    def _add_random_reaction(self, message_id: str) -> None:
+        """Add a random emoji reaction to acknowledge message received.
+        
+        Uses Feishu's built-in emoji types to provide varied visual feedback.
+        Reference: https://open.feishu.cn/document/server-docs/im-v1/message-reaction/emojis-introduce
+        """
+        if self._api_client is None:
+            return
+        
+        # Carefully selected emojis that indicate "message received" or "processing"
+        # 精选的表情，表示"已收到消息"或"正在处理"
+        acknowledgment_emojis = [
+            "OK",              # 👌 OK
+            "THUMBSUP",        # 👍 点赞
+            "DONE",            # ✅ 完成
+            "Get",             # 🉐 Get到了
+            "SALUTE",          # 🫡 敬礼
+            "LGTM",            # 👍 LGTM (Looks Good To Me)
+            "OnIt",            # 🫡 马上办
+            "OneSecond",       # ⏱️ 稍等
+            "CheckMark",       # ✔️ 对勾
+            "Typing",          # ⌨️ 正在输入
+        ]
+        
+        # Randomly select an emoji
+        selected_emoji = random.choice(acknowledgment_emojis)
+        
+        logger.info("feishu.add_reaction message_id={} emoji_type={}", message_id, selected_emoji)
+        
+        try:
+            req = (
+                CreateMessageReactionRequest.builder()
+                .message_id(message_id)
+                .request_body(
+                    CreateMessageReactionRequestBody.builder()
+                    .reaction_type(
+                        {"emoji_type": selected_emoji}
+                    )
+                    .build()
+                )
+                .build()
+            )
+            resp = self._api_client.im.v1.message_reaction.create(req)
+            if not resp.success():
+                logger.warning(
+                    "feishu.add_reaction failed code={} msg={} message_id={}",
+                    resp.code,
+                    resp.msg,
+                    message_id,
+                )
+            else:
+                logger.info("feishu.add_reaction success message_id={} emoji={}", message_id, selected_emoji)
+        except Exception:
+            logger.exception("feishu.add_reaction error message_id={}", message_id)
 
     def _reply_message(self, message_id: str, msg_type: str, content_json: str) -> None:
         assert self._api_client is not None
@@ -801,24 +877,93 @@ def _extract_card_json(text: str) -> str | None:
     return None
 
 
-def _build_outbound_content(text: str) -> tuple[str, str]:
+def _build_outbound_content(text: str, elapsed_seconds: float | None = None) -> tuple[str, str]:
     """Build ``(msg_type, content_json)`` for a Feishu outbound message.
 
     If *text* is already a valid schema 2.0 card JSON, pass it through as-is.
     Simple plain text → ``text`` message (like a normal human reply).
     Rich content (markdown formatting) → Card JSON 2.0 ``interactive`` message.
+    
+    If elapsed_seconds is provided, append elapsed time info to the content.
     """
     # Detect complete card JSON produced by LLM (e.g. via feishu-card skill).
     # LLM may wrap the JSON in ```json ... ``` code fences or add surrounding text.
     card_json = _extract_card_json(text)
     if card_json is not None:
+        # If elapsed time is provided, add it to the card
+        if elapsed_seconds is not None:
+            card_json = _add_elapsed_to_card(card_json, elapsed_seconds)
         return "interactive", card_json
 
-    if not _needs_card(text):
+    # Check if content needs card rendering (has markdown syntax)
+    needs_card = _needs_card(text)
+    
+    # Build elapsed time element if provided
+    elapsed_element = None
+    if elapsed_seconds is not None:
+        elapsed_text = f"<font color='grey'>⏱️ 耗时: {elapsed_seconds:.2f}秒</font>"
+        elapsed_element = {
+            "tag": "markdown",
+            "content": elapsed_text,
+            "text_size": "notation"  # Small font (12px)
+        }
+
+    # If no card needed and no elapsed time, return simple text
+    if not needs_card and elapsed_element is None:
         return "text", json.dumps({"text": text}, ensure_ascii=False)
+
+    # Build card with main content
+    elements: list[dict[str, Any]] = [{"tag": "markdown", "content": text}]
+    
+    # Add elapsed time to card if provided
+    if elapsed_element is not None:
+        elements.append({"tag": "hr"})  # Divider
+        elements.append(elapsed_element)
 
     card: dict[str, Any] = {
         "schema": "2.0",
-        "body": {"elements": [{"tag": "markdown", "content": text}]},
+        "body": {"elements": elements},
     }
     return "interactive", json.dumps(card, ensure_ascii=False)
+
+
+def _add_elapsed_to_card(card_json: str, elapsed_seconds: float) -> str:
+    """Add elapsed time info to an existing card JSON.
+    
+    Adds a small grey text at the bottom of the card body.
+    """
+    try:
+        card = json.loads(card_json)
+        if not isinstance(card, dict):
+            return card_json
+        
+        # Ensure body exists
+        if "body" not in card:
+            card["body"] = {}
+        if not isinstance(card["body"], dict):
+            return card_json
+            
+        # Ensure elements array exists
+        if "elements" not in card["body"]:
+            card["body"]["elements"] = []
+        if not isinstance(card["body"]["elements"], list):
+            return card_json
+        
+        # Add horizontal rule (divider)
+        card["body"]["elements"].append({
+            "tag": "hr"
+        })
+        
+        # Add elapsed time as markdown text with grey color and small font
+        elapsed_text = f"<font color='grey'>⏱️ 耗时: {elapsed_seconds:.2f}秒</font>"
+        card["body"]["elements"].append({
+            "tag": "markdown",
+            "content": elapsed_text,
+            "text_size": "notation"  # Small font (12px)
+        })
+        
+        return json.dumps(card, ensure_ascii=False)
+    except Exception:
+        # If anything goes wrong, return original card
+        logger.exception("Failed to add elapsed time to card")
+        return card_json
