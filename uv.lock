@@ -204,7 +204,7 @@ wheels = [
 
 [[package]]
 name = "bub"
-version = "0.3.5"
+version = "0.3.6"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiohttp" },
@@ -221,9 +221,9 @@ dependencies = [
     { name = "rich" },
     { name = "typer" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ec/a1/ca567e7b5897e22c43b23f34786a1d6d5143da31c73e01dbcaff59ee9790/bub-0.3.5.tar.gz", hash = "sha256:76b6e54542d53d9862e69bf4a61c0a709a45d29a3c026fe6f99bed75081ed577", size = 83827, upload-time = "2026-04-11T08:45:10.355Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/4c/fb/49cc21b69b1adfbaa6950d1e6e7edf30a3a40248b7017748dbee1595bca0/bub-0.3.6.tar.gz", hash = "sha256:d165e1f716f675e0b110971a3620f39e15829c6b5ad5305b3d23cf444648bfe5", size = 86177, upload-time = "2026-04-16T08:50:45.601Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/6a/28/f9eba5bba7054637c2af4abb9122036e75e2a316f2f58bf57815d03660bc/bub-0.3.5-py3-none-any.whl", hash = "sha256:8831b15df13623e8c7c8f480f7aac7176f6b7b9840bc7b04978703cbb03905cf", size = 82413, upload-time = "2026-04-11T08:45:08.96Z" },
+    { url = "https://files.pythonhosted.org/packages/a3/aa/6bc2906cf27b60f287585cf564cbceaa090f8246a9ae0ec54e232b12b3af/bub-0.3.6-py3-none-any.whl", hash = "sha256:24fba14b488c7fb6b97a7b10366dfdcb659390672c6f5dcdd4aa4dc16233b6d7", size = 83783, upload-time = "2026-04-16T08:50:44.146Z" },
 ]
 
 [[package]]
