@@ -2,7 +2,8 @@ FROM python:3.12-slim
 
 # git: required for weixin-agent-sdk install from GitHub
 # boxsh: sandboxed shell for agent command execution
-RUN apt-get update && apt-get install -y --no-install-recommends git curl libncurses6 fuse-overlayfs && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends git curl libncurses6 fuse-overlayfs && rm -rf /var/lib/apt/lists/* \
+    && echo "user_allow_other" >> /etc/fuse.conf
 
 # Install boxsh (sandboxed shell for agent command execution)
 ARG BOXSH_VERSION=v2.1.0

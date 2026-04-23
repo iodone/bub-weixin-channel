@@ -42,8 +42,8 @@ docker-compose logs -f
 
 | 容器内路径 | 环境变量 | 默认值 | 沙箱权限 | 说明 |
 |-----------|---------|-------|---------|------|
-| `/workspace` | `BUB_WORKSPACE` | (必需) | 🐄 COW | Agent 工作空间（只读基座，写入落到 /boxsh） |
-| `/boxsh` | `BUB_BOXSH` | `~/work/boxsh/bub-im-bridge` | ✏️ 可写 | COW 写层，持久化 agent 对 /workspace 的修改 |
+| `/workspace` | `BUB_WORKSPACE` | (必需) | 🐄 COW | Agent 工作空间（fuse-overlayfs merged view，写入落到 /boxsh） |
+| `/boxsh` | `BUB_BOXSH` | `~/work/boxsh/bub-im-bridge` | (内部) | COW upper layer，持久化 agent 对 /workspace 的修改 |
 | `/root/.agents/skills` | `BUB_SKILLS` | `~/.agents/skills` | 🔒 只读 | Bub 技能目录 |
 | `/root/.openclaw/openclaw-weixin` | `BUB_WEIXIN_DATA` | `~/.openclaw/openclaw-weixin` | 🔒 只读 | 微信登录凭据 |
 | `/root/.bub` | `BUB_HOME` | `~/.bub` | ✏️ 可写 | Bub 运行数据（tapes、配置） |
@@ -63,11 +63,11 @@ docker-compose logs -f
 
 ### 进入容器调试
 
-容器内有两层环境：**容器原始环境**和 **boxsh 沙箱环境**。entrypoint 通过 `exec boxsh --sandbox ...` 启动服务，boxsh 会为其命令树创建独立的 mount namespace（沙箱视图）。`docker-compose exec` 新起的进程会进入该 namespace，但不会自动经过 boxsh 初始化。
+容器启动时先用 fuse-overlayfs 在 `/workspace` 上建立 COW overlay（allow_other），再通过 `exec boxsh --sandbox ...` 启动服务。boxsh 为其命令树创建独立的 mount namespace（沙箱视图），`docker-compose exec` 新起的进程会进入该 namespace。
 
 ```bash
 # 1. 进入沙箱视图的调试 shell（与 agent 运行时视角一致）
-#    继承 PID 1 的 boxsh 沙箱保护（COW、只读挂载等）
+#    /workspace 可读写（COW overlay），skills/weixin 只读
 docker-compose exec bub /entrypoint.sh shell
 
 # 2. 进入容器运行环境（同样在 boxsh 的 mount namespace 内）
@@ -207,9 +207,8 @@ mount | grep -E "bind|overlay" | grep -v "lowerdir=/var/lib/docker"
  ├── $BUB_WORKSPACE (原始工作区，不被修改)
  ├── $BUB_BOXSH (COW 写层，持久化 agent 写入)
  └── Docker 容器
-      ├── /workspace ← $BUB_WORKSPACE
-      ├── /boxsh ← $BUB_BOXSH
-      └── boxsh 沙箱 (cow:/workspace:/boxsh)
+      ├── /workspace ← fuse-overlayfs(lower=$BUB_WORKSPACE, upper=$BUB_BOXSH)
+      └── boxsh 沙箱 (bind wr:/workspace)
            └── bub gateway 进程
 ```
 
@@ -299,16 +298,17 @@ BOXSH_ARGS="--sandbox \
   --bind wr:/app \
   --bind wr:/root \
   --bind ro:/entrypoint.sh \
-  --bind cow:$WORKSPACE:/boxsh \
+  --bind wr:$WORKSPACE \
   --bind ro:/root/.agents/skills \
   --bind ro:/root/.openclaw/openclaw-weixin \
   --bind wr:/root/.bub"
 ```
 
-支持的挂载模式：
+COW overlay 在 boxsh 之前由 `fuse-overlayfs` 建立（见 `entrypoint.sh` 顶部），boxsh 只需以 `wr` 绑定 `/workspace`。
+
+支持的 boxsh 挂载模式：
 - `ro:PATH` - 只读挂载
 - `wr:PATH` - 读写挂载
-- `cow:SRC:DST` - 写时复制（COW）挂载
 
 ### 隔离网络访问
 
