@@ -103,3 +103,37 @@ def test_store_update_last_seen(tmp_path: Path):
     updated = store.get(p.id)
     assert updated is not None
     assert updated.last_seen >= old_last_seen
+
+
+def test_store_feishu_integration(tmp_path: Path):
+    """Simulate the FeishuChannel flow: lookup-or-create + touch."""
+    store = ProfileStore(tmp_path / "profiles")
+    store.load()
+
+    # First encounter — profile does not exist, create it
+    open_id = "ou_alice"
+    profile = store.lookup("feishu", "open_id", open_id)
+    assert profile is None
+
+    profile = store.upsert(
+        platform="feishu",
+        id_field="open_id",
+        id_value=open_id,
+        name="Alice",
+        extra_ids={"union_id": "on_alice", "user_id": "alice"},
+        department="Engineering",
+    )
+    assert profile.name == "Alice"
+    assert profile.department == "Engineering"
+
+    # Second encounter — profile exists, just touch
+    found = store.lookup("feishu", "open_id", open_id)
+    assert found is not None
+    store.touch(found.id)
+
+    # Verify persistence — reload from disk
+    store2 = ProfileStore(tmp_path / "profiles")
+    store2.load()
+    reloaded = store2.lookup("feishu", "open_id", open_id)
+    assert reloaded is not None
+    assert reloaded.name == "Alice"
