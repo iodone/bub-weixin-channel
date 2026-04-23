@@ -65,14 +65,18 @@ docker-compose logs -f
 容器内有两层环境：**容器原始环境**和 **boxsh 沙箱环境**。entrypoint 通过 `exec boxsh --sandbox ...` 启动服务，boxsh 会为其命令树创建独立的 mount namespace（沙箱视图）。`docker-compose exec` 新起的进程会进入该 namespace，但不会自动经过 boxsh 初始化。
 
 ```bash
-# 进入 boxsh 沙箱（与 agent 运行时视角一致）
+# 1. 进入 boxsh 沙箱（与 agent 运行时视角一致）
+#    适合验证 agent 在沙箱中的行为
 docker-compose exec bub /entrypoint.sh shell
 
-# 进入容器原始环境（不在沙箱内，用于排查镜像、挂载等问题）
+# 2. 进入容器运行环境（boxsh 的 mount namespace，但未经沙箱初始化）
+#    适合看进程、环境变量、运行中挂载状态
+docker-compose exec bub bash
+
+# 3. 进入原始镜像环境（绕过 boxsh，启动新容器）
+#    适合排查镜像内容、确认文件是否被正确打包
 docker-compose run --rm --entrypoint sh bub
 ```
-
-> **注意**：`docker-compose exec bub sh` 进入的是 boxsh 的 mount namespace 但未经过沙箱初始化，看到的文件系统可能不完整。推荐使用上面两种方式。
 
 在沙箱内，你可以验证只读保护：
 
