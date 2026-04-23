@@ -137,7 +137,27 @@ class ProfileStore:
     ) -> UserProfile:
         existing = self.lookup(platform, id_field, id_value)
         if existing is not None:
-            return existing
+            # Merge new data into existing profile
+            merged_im_ids = dict(existing.im_ids)
+            merged_im_ids.setdefault(platform, {})[id_field] = id_value
+            if extra_ids:
+                merged_im_ids[platform].update(extra_ids)
+
+            changes: dict[str, Any] = {"im_ids": merged_im_ids, "updated_at": _now_iso()}
+            if name and name != existing.name and existing.name == id_value:
+                changes["name"] = name  # upgrade from placeholder
+            if department and not existing.department:
+                changes["department"] = department
+            if title and not existing.title:
+                changes["title"] = title
+            if avatar_url and not existing.avatar_url:
+                changes["avatar_url"] = avatar_url
+
+            updated = replace(existing, **changes)
+            self._profiles[existing.id] = updated
+            self._build_index(updated)
+            self._write(updated)
+            return updated
 
         im_ids: dict[str, dict[str, str]] = {platform: {id_field: id_value}}
         if extra_ids:
@@ -154,6 +174,53 @@ class ProfileStore:
         self._build_index(profile)
         self._write(profile)
         return profile
+
+    def update_field(self, profile_id: str, field_name: str, value: Any) -> UserProfile | None:
+        """Update a single field on an existing profile."""
+        profile = self._profiles.get(profile_id)
+        if profile is None:
+            return None
+        known = {f.name for f in UserProfile.__dataclass_fields__.values()}
+        if field_name not in known or field_name in ("id", "first_seen", "schema_version"):
+            return None
+        updated = replace(profile, **{field_name: value, "updated_at": _now_iso(), "source": "auto+manual"})
+        self._profiles[profile_id] = updated
+        if field_name == "im_ids":
+            self._build_index(updated)
+        self._write(updated)
+        return updated
+
+    def search(self, query: str) -> list[UserProfile]:
+        """Search profiles by name, aliases, or body content."""
+        query_lower = query.lower()
+        results = []
+        for profile in self._profiles.values():
+            if query_lower in profile.name.lower():
+                results.append(profile)
+                continue
+            if any(query_lower in a.lower() for a in profile.aliases):
+                results.append(profile)
+                continue
+            if query_lower in profile.body.lower():
+                results.append(profile)
+                continue
+            if query_lower in profile.department.lower():
+                results.append(profile)
+                continue
+            if query_lower in profile.title.lower():
+                results.append(profile)
+                continue
+        return results
+
+    def lookup_by_name(self, name: str) -> UserProfile | None:
+        """Find a profile by display name or alias."""
+        name_lower = name.lower()
+        for profile in self._profiles.values():
+            if profile.name.lower() == name_lower:
+                return profile
+            if any(a.lower() == name_lower for a in profile.aliases):
+                return profile
+        return None
 
     def touch(self, profile_id: str) -> None:
         profile = self._profiles.get(profile_id)

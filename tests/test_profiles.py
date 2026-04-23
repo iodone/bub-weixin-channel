@@ -135,3 +135,71 @@ def test_store_feishu_integration(tmp_path: Path):
     reloaded = store2.lookup("feishu", "open_id", open_id)
     assert reloaded is not None
     assert reloaded.name == "Alice"
+
+
+def test_upsert_merges_existing(tmp_path: Path):
+    """upsert updates existing profile with new data instead of ignoring."""
+    store = ProfileStore(tmp_path / "profiles")
+    store.load()
+
+    # First create
+    p = store.upsert(
+        platform="feishu", id_field="open_id", id_value="ou_merge",
+        name="ou_merge",  # placeholder name
+    )
+    assert p.name == "ou_merge"
+    assert p.department == ""
+
+    # Second upsert with richer data — should merge
+    p2 = store.upsert(
+        platform="feishu", id_field="open_id", id_value="ou_merge",
+        name="MergeUser",
+        extra_ids={"union_id": "on_merge"},
+        department="Engineering",
+        title="Engineer",
+    )
+    assert p2.id == p.id  # same profile
+    assert p2.name == "MergeUser"  # upgraded from placeholder
+    assert p2.department == "Engineering"
+    assert p2.im_ids["feishu"]["union_id"] == "on_merge"  # merged extra ID
+
+
+def test_update_field(tmp_path: Path):
+    """update_field writes a specific field to an existing profile."""
+    store = ProfileStore(tmp_path / "profiles")
+    store.load()
+
+    p = store.upsert(
+        platform="feishu", id_field="open_id", id_value="ou_upd", name="Updater",
+    )
+    updated = store.update_field(p.id, "personality", ["逻辑严谨", "直接高效"])
+    assert updated is not None
+    assert updated.personality == ["逻辑严谨", "直接高效"]
+    assert updated.source == "auto+manual"
+
+
+def test_search(tmp_path: Path):
+    """search finds profiles by name, department, body content."""
+    store = ProfileStore(tmp_path / "profiles")
+    store.load()
+
+    store.upsert(platform="feishu", id_field="open_id", id_value="ou_s1", name="Alice", department="OLAP")
+    store.upsert(platform="feishu", id_field="open_id", id_value="ou_s2", name="Bob", department="Frontend")
+
+    assert len(store.search("Alice")) == 1
+    assert len(store.search("OLAP")) == 1
+    assert len(store.search("nonexistent")) == 0
+
+
+def test_lookup_by_name(tmp_path: Path):
+    """lookup_by_name finds by display name or alias."""
+    store = ProfileStore(tmp_path / "profiles")
+    store.load()
+
+    p = store.upsert(platform="feishu", id_field="open_id", id_value="ou_ln", name="Alice Wang")
+    store.update_field(p.id, "aliases", ["小王", "Alice"])
+
+    assert store.lookup_by_name("Alice Wang") is not None
+    assert store.lookup_by_name("小王") is not None
+    assert store.lookup_by_name("alice") is not None  # case insensitive
+    assert store.lookup_by_name("Unknown") is None
