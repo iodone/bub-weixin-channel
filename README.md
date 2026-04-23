@@ -100,7 +100,7 @@ cp .env.example .env
 # 编辑 .env，填入 BUB_WORKSPACE 等配置
 
 # 2. 创建必要目录
-mkdir -p ~/.bub ~/.agents/skills ~/work/boxsh
+mkdir -p ~/.bub ~/.agents/skills ~/work/boxsh/bub-im-bridge
 
 # 3. 微信渠道需要先登录
 uv run -m bub_im_bridge login
