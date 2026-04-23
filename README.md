@@ -90,7 +90,7 @@ uv run bub gateway
 
 ## Docker 部署
 
-容器内通过 [boxsh](https://github.com/xicilion/boxsh) 沙箱运行，工作空间以只读方式挂载，防止 Agent 意外修改原始文件。
+容器内通过 [boxsh](https://github.com/xicilion/boxsh) 沙箱运行，Agent 对工作空间的写入通过 COW（写时复制）隔离到独立目录，原始工作空间不受影响。
 
 ### 快速开始
 
@@ -116,7 +116,8 @@ docker-compose logs -f
 
 | 目录 | 权限 | 说明 |
 |------|------|------|
-| `/workspace` | 🔒 只读 | Agent 工作空间 |
+| `/workspace` | 🐄 COW | Agent 工作空间（只读基座，写入落到 /boxsh） |
+| `/boxsh` | ✏️ 可写 | COW 写层，持久化 agent 对 workspace 的修改 |
 | `/root/.agents/skills` | 🔒 只读 | Bub 技能目录 |
 | `/root/.openclaw/openclaw-weixin` | 🔒 只读 | 微信登录凭据 |
 | `/root/.bub` | ✏️ 可写 | Bub 运行数据（tapes、配置） |
