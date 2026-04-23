@@ -302,6 +302,42 @@ def _fetch_user_name(client: lark.Client, open_id: str) -> str:
     return open_id
 
 
+def fetch_user_info(client: lark.Client, open_id: str) -> dict[str, str]:
+    """Fetch user profile fields from Feishu Contact API.
+
+    Returns a dict with keys: name, department_id, job_title, avatar_url.
+    Falls back to open_id as name on failure.
+    """
+    fallback = {"name": open_id, "department_id": "", "job_title": "", "avatar_url": ""}
+    if not open_id or open_id.startswith("cli_"):
+        fallback["name"] = "bot" if open_id.startswith("cli_") else ""
+        return fallback
+    try:
+        from lark_oapi.api.contact.v3 import GetUserRequest
+
+        req = GetUserRequest.builder().user_id(open_id).user_id_type("open_id").build()
+        resp = client.contact.v3.user.get(req)
+        if resp.success():
+            user = getattr(resp, "data", None)
+            user_obj = getattr(user, "user", None) if user else None
+            if user_obj:
+                avatar = getattr(user_obj, "avatar", None)
+                return {
+                    "name": getattr(user_obj, "name", None) or open_id,
+                    "department_id": getattr(user_obj, "department_id", None) or "",
+                    "job_title": getattr(user_obj, "job_title", None) or "",
+                    "avatar_url": getattr(avatar, "avatar_72", None) or "" if avatar else "",
+                }
+        else:
+            logger.debug(
+                "feishu.api.fetch_user_info failed open_id={} code={} msg={}",
+                open_id, resp.code, resp.msg,
+            )
+    except Exception:
+        logger.debug("feishu.api.fetch_user_info error open_id={}", open_id)
+    return fallback
+
+
 def _normalize_text(message_type: str, content: str) -> str:
     """Extract human-readable text from the raw Feishu message content JSON."""
     if not content:
