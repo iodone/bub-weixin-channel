@@ -22,26 +22,38 @@ set -e
 # Fixed paths inside container (mounted via docker-compose volumes)
 WORKSPACE="/workspace"
 
-BOXSH_ARGS="--sandbox \
+# Service mode: COW overlay for /workspace (writes go to /boxsh)
+SERVICE_ARGS="--sandbox \
   --bind wr:/app \
   --bind wr:/root \
   --bind ro:/entrypoint.sh \
-  --bind wr:/boxsh \
   --bind cow:$WORKSPACE:/boxsh \
   --bind ro:/root/.agents/skills \
   --bind ro:/root/.openclaw/openclaw-weixin \
   --bind wr:/root/.bub"
 
-# 如果没有参数，启动服务
+# Debug mode: when called via `docker exec`, /workspace is already the COW
+# merged view from the service's boxsh. No need for nested COW — just bind
+# the existing view as writable.
+DEBUG_ARGS="--sandbox \
+  --bind wr:/app \
+  --bind wr:/root \
+  --bind ro:/entrypoint.sh \
+  --bind wr:$WORKSPACE \
+  --bind ro:/root/.agents/skills \
+  --bind ro:/root/.openclaw/openclaw-weixin \
+  --bind wr:/root/.bub"
+
+# 如果没有参数，启动服务（COW 模式）
 if [ $# -eq 0 ]; then
-  exec boxsh $BOXSH_ARGS -c "cd /app && uv run bub -w '$WORKSPACE' gateway"
+  exec boxsh $SERVICE_ARGS -c "cd /app && uv run bub -w '$WORKSPACE' gateway"
 fi
 
-# 如果第一个参数是 "shell" 或 "sh"，启动交互式 shell
+# 如果第一个参数是 "shell" 或 "sh"，启动交互式调试 shell
 if [ "$1" = "shell" ] || [ "$1" = "sh" ]; then
   shift
-  exec boxsh $BOXSH_ARGS "$@"
+  exec boxsh $DEBUG_ARGS "$@"
 fi
 
-# 否则，在 boxsh 中执行传入的命令
-exec boxsh $BOXSH_ARGS -c "$*"
+# 否则，在沙箱中执行传入的命令（调试模式）
+exec boxsh $DEBUG_ARGS -c "$*"
