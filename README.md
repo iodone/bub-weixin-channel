@@ -90,7 +90,7 @@ uv run bub gateway
 
 ## Docker 部署
 
-容器内通过 [boxsh](https://github.com/xicilion/boxsh) 沙箱运行，Agent 对工作空间的写入通过 COW（写时复制）隔离到独立目录，原始工作空间不受影响。
+容器内通过 [boxsh](https://github.com/xicilion/boxsh) 沙箱运行，工作空间以只读方式挂载，防止 Agent 意外修改原始文件。
 
 ### 快速开始
 

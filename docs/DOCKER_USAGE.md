@@ -145,7 +145,6 @@ BUB_API_KEY=sk-ant-xxxxx
 
 ```bash
 # Bub 相关目录（使用默认值即可）
-BUB_BOXSH=~/work/boxsh/bub-im-bridge
 BUB_SKILLS=~/.agents/skills
 BUB_WEIXIN_DATA=~/.openclaw/openclaw-weixin
 BUB_HOME=~/.bub
@@ -263,7 +262,6 @@ docker-compose up -d
 A: 不会。所有重要数据都通过 volume 挂载，存储在宿主机上：
 - `/root/.bub` → `$BUB_HOME`（tapes、配置）
 - `/root/.openclaw/openclaw-weixin` → `$BUB_WEIXIN_DATA`（微信凭据）
-- `/boxsh` → `$BUB_BOXSH`（agent 对 workspace 的 COW 写入）
 
 容器删除重建后，这些数据仍然存在。
 
@@ -287,7 +285,10 @@ docker exec -it bub /entrypoint.sh ls -la /root/.bub/tapes/
 
 ```bash
 BOXSH_ARGS="--sandbox \
-  --bind cow:$WORKSPACE:/boxsh \
+  --bind wr:/app \
+  --bind wr:/root \
+  --bind ro:/entrypoint.sh \
+  --bind ro:/workspace \
   --bind ro:/root/.agents/skills \
   --bind ro:/root/.openclaw/openclaw-weixin \
   --bind wr:/root/.bub"
@@ -305,7 +306,7 @@ BOXSH_ARGS="--sandbox \
 ```bash
 BOXSH_ARGS="--sandbox \
   --new-net-ns \
-  --bind cow:$WORKSPACE:/boxsh \
+  --bind ro:/workspace \
   ..."
 ```
 
@@ -322,7 +323,6 @@ services:
     env_file: .env.bub1
     volumes:
       - ${BUB_WORKSPACE_1}:/workspace
-      - ${BUB_BOXSH_1}:/boxsh
       - ${BUB_HOME_1}:/root/.bub
     container_name: bub-1
 
@@ -331,12 +331,9 @@ services:
     env_file: .env.bub2
     volumes:
       - ${BUB_WORKSPACE_2}:/workspace
-      - ${BUB_BOXSH_2}:/boxsh
       - ${BUB_HOME_2}:/root/.bub
     container_name: bub-2
 ```
-
-每个实例的 `BUB_BOXSH` 必须指向不同的项目专属目录（如 `~/work/boxsh/project-1`、`~/work/boxsh/project-2`），避免 COW 写层互相污染。
 
 ## 技术细节
 
