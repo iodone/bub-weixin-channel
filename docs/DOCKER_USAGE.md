@@ -15,7 +15,7 @@ cp .env.example .env
 ### 2. 创建必要目录
 
 ```bash
-mkdir -p ~/.bub ~/.agents/skills ~/work/boxsh
+mkdir -p ~/.bub ~/.agents/skills ~/work/boxsh/bub-im-bridge
 ```
 
 ### 3. 微信渠道登录（可选）
@@ -43,7 +43,7 @@ docker-compose logs -f
 | 容器内路径 | 环境变量 | 默认值 | 沙箱权限 | 说明 |
 |-----------|---------|-------|---------|------|
 | `/workspace` | `BUB_WORKSPACE` | (必需) | 🐄 COW | Agent 工作空间（只读基座，写入落到 /boxsh） |
-| `/boxsh` | `BUB_BOXSH` | `~/work/boxsh` | ✏️ 可写 | COW 写层，持久化 agent 对 /workspace 的修改 |
+| `/boxsh` | `BUB_BOXSH` | `~/work/boxsh/bub-im-bridge` | ✏️ 可写 | COW 写层，持久化 agent 对 /workspace 的修改 |
 | `/root/.agents/skills` | `BUB_SKILLS` | `~/.agents/skills` | 🔒 只读 | Bub 技能目录 |
 | `/root/.openclaw/openclaw-weixin` | `BUB_WEIXIN_DATA` | `~/.openclaw/openclaw-weixin` | 🔒 只读 | 微信登录凭据 |
 | `/root/.bub` | `BUB_HOME` | `~/.bub` | ✏️ 可写 | Bub 运行数据（tapes、配置） |
@@ -83,7 +83,7 @@ cat /workspace/test.txt
 
 # 在宿主机验证原始 workspace 未被修改
 # ls ~/work/github/bub-im-bridge/test.txt → 不存在
-# ls ~/work/boxsh/test.txt → 存在（COW 写层）
+# ls ~/work/boxsh/bub-im-bridge/test.txt → 存在（COW 写层）
 
 # 测试 skills 目录只读（应该失败）
 touch /root/.agents/skills/test.txt  
@@ -149,7 +149,7 @@ BUB_API_KEY=sk-ant-xxxxx
 
 ```bash
 # Bub 相关目录（使用默认值即可）
-BUB_BOXSH=~/work/boxsh
+BUB_BOXSH=~/work/boxsh/bub-im-bridge
 BUB_SKILLS=~/.agents/skills
 BUB_WEIXIN_DATA=~/.openclaw/openclaw-weixin
 BUB_HOME=~/.bub
@@ -311,7 +311,7 @@ BOXSH_ARGS="--sandbox \
 ```bash
 BOXSH_ARGS="--sandbox \
   --new-net-ns \
-  --bind ro:$WORKSPACE \
+  --bind cow:$WORKSPACE:/boxsh \
   ..."
 ```
 
@@ -328,6 +328,7 @@ services:
     env_file: .env.bub1
     volumes:
       - ${BUB_WORKSPACE_1}:/workspace
+      - ${BUB_BOXSH_1}:/boxsh
       - ${BUB_HOME_1}:/root/.bub
     container_name: bub-1
 
@@ -336,9 +337,12 @@ services:
     env_file: .env.bub2
     volumes:
       - ${BUB_WORKSPACE_2}:/workspace
+      - ${BUB_BOXSH_2}:/boxsh
       - ${BUB_HOME_2}:/root/.bub
     container_name: bub-2
 ```
+
+每个实例的 `BUB_BOXSH` 必须指向不同的项目专属目录（如 `~/work/boxsh/project-1`、`~/work/boxsh/project-2`），避免 COW 写层互相污染。
 
 ## 技术细节
 
