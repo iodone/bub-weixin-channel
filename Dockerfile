@@ -2,7 +2,8 @@ FROM python:3.12-slim
 
 # git: required for weixin-agent-sdk install from GitHub
 # boxsh: sandboxed shell for agent command execution
-RUN apt-get update && apt-get install -y --no-install-recommends git curl libncurses6 fuse-overlayfs && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends git curl libncurses6 fuse-overlayfs && rm -rf /var/lib/apt/lists/* && \
+    echo "user_allow_other" >> /etc/fuse.conf
 
 # Install boxsh (sandboxed shell for agent command execution)
 ARG BOXSH_VERSION=v2.1.0
@@ -34,13 +35,13 @@ COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
 # Volumes:
-#   /workspace                       - agent workspace (read-only base, COW via boxsh)
-#   /boxsh                           - COW write layer for /workspace (persists agent writes)
+#   /workspace-base                  - agent workspace read-only base (COW lower layer)
+#   /workspace                       - COW upper layer (persists agent writes via $BUB_BOXSH)
 #   /root/.agents/skills             - bub skills directory (read-only in boxsh)
 #   /root/.openclaw/openclaw-weixin  - weixin credentials (read-only in boxsh)
 #   /root/.bub                       - bub home (read-write in boxsh for tapes, config)
+VOLUME /workspace-base
 VOLUME /workspace
-VOLUME /boxsh
 VOLUME /root/.agents/skills
 VOLUME /root/.openclaw/openclaw-weixin
 VOLUME /root/.bub

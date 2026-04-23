@@ -42,7 +42,8 @@ docker-compose logs -f
 
 | 容器内路径 | 环境变量 | 默认值 | 沙箱权限 | 说明 |
 |-----------|---------|-------|---------|------|
-| `/workspace` | `BUB_WORKSPACE` | (必需) | 🔒 只读 | Agent 工作空间 |
+| `/workspace-base` | `BUB_WORKSPACE` | (必需) | (基座) | COW 只读基座（Docker volume，不在沙箱内直接暴露） |
+| `/workspace` | `BUB_BOXSH` | `~/work/boxsh/bub-im-bridge` | 🐄 COW | Agent 工作空间（boxsh COW merged view），写入持久化到宿主机 |
 | `/root/.agents/skills` | `BUB_SKILLS` | `~/.agents/skills` | 🔒 只读 | Bub 技能目录 |
 | `/root/.openclaw/openclaw-weixin` | `BUB_WEIXIN_DATA` | `~/.openclaw/openclaw-weixin` | 🔒 只读 | 微信登录凭据 |
 | `/root/.bub` | `BUB_HOME` | `~/.bub` | ✏️ 可写 | Bub 运行数据（tapes、配置） |
@@ -51,39 +52,44 @@ docker-compose logs -f
 
 容器内使用 [boxsh](https://github.com/xicilion/boxsh) 沙箱运行 bub 服务，提供进程级别的文件系统隔离：
 
-- ✅ Agent 可以读取 workspace、skills、weixin 配置
+- ✅ Agent 可以读写 `/workspace`（COW merged view，基座来自 $BUB_WORKSPACE）
 - ✅ Agent 可以在 `/root/.bub` 中写入 tapes 和配置
-- ❌ Agent **无法**修改 workspace（只读）
+- ✅ Agent 对 `/workspace` 的写操作通过 COW 持久化到宿主机 `$BUB_BOXSH`，原始 workspace 不受影响
 - ❌ Agent **无法**修改 skills 和 weixin 配置（防止意外覆盖）
 
-即使 AI agent 生成了 `rm -rf /workspace` 这样的危险命令，也不会对宿主机的原始 workspace 造成影响。
+即使 AI agent 生成了 `rm -rf /workspace` 这样的危险命令，也不会对宿主机的原始 workspace 造成影响。所有写入、删除、覆盖都沉淀到宿主机 `$BUB_BOXSH` 目录。
 
 ## 调试和运维
 
 ### 进入容器调试
 
-容器内有两层环境：**容器原始环境**和 **boxsh 沙箱环境**。entrypoint 通过 `exec boxsh --sandbox ...` 启动服务，boxsh 会为其命令树创建独立的 mount namespace（沙箱视图）。`docker-compose exec` 新起的进程会进入该 namespace，但不会自动经过 boxsh 初始化。
+entrypoint 通过 `exec boxsh --sandbox ...` 启动服务，boxsh 使用 `cow:/workspace-base:/workspace` 建立 COW overlay 并创建独立的 mount namespace（沙箱视图）。
 
 ```bash
-# 1. 进入 boxsh 沙箱（与 agent 运行时视角一致）
-#    适合验证 agent 在沙箱中的行为
-docker-compose exec bub /entrypoint.sh shell
+# 1. 启动与 bub 同配置的新 boxsh 调试实例（推荐）
+#    /workspace 可读写（独立的 COW merged view），skills/weixin 只读
+#    适合验证 agent 在沙箱中的行为、测试文件读写
+docker-compose run --rm bub /entrypoint.sh shell
 
-# 2. 进入容器运行环境（boxsh 的 mount namespace，但未经沙箱初始化）
-#    适合看进程、环境变量、运行中挂载状态
-docker-compose exec bub bash
+# 2. 查看当前运行态（继承服务的沙箱视图）
+#    可查看进程、环境变量、/root/.bub 等，但 /workspace 受 fuse 限制不可访问
+docker-compose exec bub /entrypoint.sh shell
 
 # 3. 进入原始镜像环境（绕过 boxsh，启动新容器）
 #    适合排查镜像内容、确认文件是否被正确打包
 docker-compose run --rm --entrypoint sh bub
 ```
 
-在沙箱内，你可以验证只读保护：
+在沙箱内，你可以验证 COW 和只读保护：
 
 ```bash
-# 测试 workspace 只读（应该失败）
+# 测试 COW 写入（应该成功，但不修改原始 workspace）
 echo "test" > /workspace/test.txt
-# 输出：Read-only file system
+cat /workspace/test.txt
+# 输出：test（通过 COW 层读取）
+
+# 在宿主机验证原始 workspace 未被修改
+# ls $BUB_WORKSPACE/test.txt → 不存在
 
 # 测试 skills 目录只读（应该失败）
 touch /root/.agents/skills/test.txt  
@@ -145,6 +151,7 @@ BUB_API_KEY=sk-ant-xxxxx
 
 ```bash
 # Bub 相关目录（使用默认值即可）
+BUB_BOXSH=~/work/boxsh/bub-im-bridge
 BUB_SKILLS=~/.agents/skills
 BUB_WEIXIN_DATA=~/.openclaw/openclaw-weixin
 BUB_HOME=~/.bub
@@ -172,9 +179,10 @@ docker-compose exec bub /entrypoint.sh shell
 
 # 在沙箱内执行：
 
-# 1. 测试 workspace 只读
+# 1. 测试 COW 写入（成功，但原始 workspace 不变）
 echo test > /workspace/test.txt
-# 预期输出：Read-only file system
+cat /workspace/test.txt
+# 预期输出：test
 
 # 2. 测试可写目录
 touch /root/.bub/test.txt
@@ -197,10 +205,13 @@ mount | grep -E "bind|overlay" | grep -v "lowerdir=/var/lib/docker"
 ```
 宿主机
  ├── $BUB_WORKSPACE (原始工作区，不被修改)
+ ├── $BUB_BOXSH (COW 写层，持久化 agent 写入)
  └── Docker 容器
-      ├── /workspace ← $BUB_WORKSPACE
-      └── boxsh 沙箱 (ro:/workspace)
-           └── bub gateway 进程
+      ├── /workspace-base ← $BUB_WORKSPACE (只读基座)
+      ├── /workspace      ← $BUB_BOXSH (COW upper layer)
+      └── boxsh 沙箱 (cow:/workspace-base:/workspace)
+           ├── /workspace = COW merged view (agent workspace)
+           └── bub gateway 进程 (bub -w /workspace)
 ```
 
 ### entrypoint.sh 用法
@@ -212,20 +223,20 @@ mount | grep -E "bind|overlay" | grep -v "lowerdir=/var/lib/docker"
 /entrypoint.sh
 # → 在 boxsh 沙箱内启动 bub gateway
 
-# 2. 进入交互式 shell
+# 2. 进入交互式 shell（继承沙箱保护）
 /entrypoint.sh shell
-# → 在 boxsh 沙箱内启动交互式 shell
+# → 在沙箱视图下启动交互式 shell
 
-# 3. 执行单个命令
+# 3. 执行单个命令（继承沙箱保护）
 /entrypoint.sh <command>
-# → 在 boxsh 沙箱内执行命令
+# → 在沙箱视图下执行命令
 ```
 
 ## 常见问题
 
 ### Q: 为什么要使用 boxsh 沙箱？
 
-A: boxsh 提供进程级别的文件系统隔离，防止 AI agent 执行的命令意外修改重要文件。即使 agent 生成了 `rm -rf /workspace` 这样的危险命令，也不会对宿主机造成影响。
+A: boxsh 提供进程级别的文件系统隔离，防止 AI agent 执行的命令意外修改重要文件。即使 agent 生成了 `rm -rf /workspace` 这样的危险命令，也不会对宿主机的原始 workspace 造成影响。
 
 ### Q: 沙箱会影响性能吗？
 
@@ -262,6 +273,7 @@ docker-compose up -d
 A: 不会。所有重要数据都通过 volume 挂载，存储在宿主机上：
 - `/root/.bub` → `$BUB_HOME`（tapes、配置）
 - `/root/.openclaw/openclaw-weixin` → `$BUB_WEIXIN_DATA`（微信凭据）
+- `/workspace` → `$BUB_BOXSH`（agent 对 workspace 的 COW 写入）
 
 容器删除重建后，这些数据仍然存在。
 
@@ -288,16 +300,16 @@ BOXSH_ARGS="--sandbox \
   --bind wr:/app \
   --bind wr:/root \
   --bind ro:/entrypoint.sh \
-  --bind ro:/workspace \
+  --bind cow:/workspace-base:/workspace \
   --bind ro:/root/.agents/skills \
   --bind ro:/root/.openclaw/openclaw-weixin \
   --bind wr:/root/.bub"
 ```
 
-支持的挂载模式：
+支持的 boxsh 挂载模式：
 - `ro:PATH` - 只读挂载
 - `wr:PATH` - 读写挂载
-- `cow:SRC:DST` - 写时复制（COW）挂载
+- `cow:SRC:DST` - 写时复制（SRC 为只读基座，DST 为沙箱内 merged view）
 
 ### 隔离网络访问
 
@@ -306,7 +318,7 @@ BOXSH_ARGS="--sandbox \
 ```bash
 BOXSH_ARGS="--sandbox \
   --new-net-ns \
-  --bind ro:/workspace \
+  --bind cow:/workspace-base:/workspace \
   ..."
 ```
 
@@ -322,7 +334,8 @@ services:
     build: .
     env_file: .env.bub1
     volumes:
-      - ${BUB_WORKSPACE_1}:/workspace
+      - ${BUB_WORKSPACE_1}:/workspace-base
+      - ${BUB_BOXSH_1}:/workspace
       - ${BUB_HOME_1}:/root/.bub
     container_name: bub-1
 
@@ -330,10 +343,13 @@ services:
     build: .
     env_file: .env.bub2
     volumes:
-      - ${BUB_WORKSPACE_2}:/workspace
+      - ${BUB_WORKSPACE_2}:/workspace-base
+      - ${BUB_BOXSH_2}:/workspace
       - ${BUB_HOME_2}:/root/.bub
     container_name: bub-2
 ```
+
+每个实例的 `BUB_BOXSH` 必须指向不同的项目专属目录（如 `~/work/boxsh/project-1`、`~/work/boxsh/project-2`），避免 COW 写层互相污染。
 
 ## 技术细节
 
