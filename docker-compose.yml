@@ -4,6 +4,7 @@ services:
     env_file: .env
     volumes:
       - ${BUB_WORKSPACE}:/workspace
+      - ${BUB_BOXSH}:/boxsh
       - ${BUB_SKILLS}:/root/.agents/skills
       - ${BUB_WEIXIN_DATA}:/root/.openclaw/openclaw-weixin
       - ${BUB_HOME}:/root/.bub

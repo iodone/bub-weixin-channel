@@ -34,11 +34,13 @@ COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
 # Volumes:
-#   /workspace                       - agent workspace (system-weaver, read-only in boxsh)
+#   /workspace                       - agent workspace (read-only base, COW via boxsh)
+#   /boxsh                           - COW write layer for /workspace (persists agent writes)
 #   /root/.agents/skills             - bub skills directory (read-only in boxsh)
 #   /root/.openclaw/openclaw-weixin  - weixin credentials (read-only in boxsh)
 #   /root/.bub                       - bub home (read-write in boxsh for tapes, config)
 VOLUME /workspace
+VOLUME /boxsh
 VOLUME /root/.agents/skills
 VOLUME /root/.openclaw/openclaw-weixin
 VOLUME /root/.bub
