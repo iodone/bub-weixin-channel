@@ -332,25 +332,36 @@ class FeishuChannel(Channel):
 
     def _should_skip(self, message: FeishuInboundMessage) -> str | None:
         """Return a reason string if the message should be silently skipped, else ``None``."""
-        if self._allow_chats and message.chat_id not in self._allow_chats:
-            return "chat_not_allowed"
-
-        if self._allow_users:
-            sender_ids = {
-                t
-                for t in (
-                    message.sender_open_id,
-                    message.sender_union_id,
-                    message.sender_user_id,
-                )
-                if t
-            }
-            if sender_ids.isdisjoint(self._allow_users):
+        
+        # 1. Admin 用户豁免所有限制
+        sender_ids = {
+            t
+            for t in (
+                message.sender_open_id,
+                message.sender_union_id,
+                message.sender_user_id,
+            )
+            if t
+        }
+        
+        # Admin 用户完全豁免
+        if any(is_admin_sender(sid) for sid in sender_ids):
+            return None
+        
+        # 2. 群聊（group/topic）：只检查 allow_chats
+        if message.is_group:
+            if self._allow_chats and message.chat_id not in self._allow_chats:
+                return "chat_not_allowed"
+        
+        # 3. 私聊（p2p）：只检查 allow_users
+        elif message.chat_type == "p2p":
+            if self._allow_users and sender_ids.isdisjoint(self._allow_users):
                 return "user_not_allowed"
-
+        
+        # 4. 空消息检查
         if not message.text.strip():
             return "empty_text"
-
+        
         return None
 
     def _check_active(self, message: FeishuInboundMessage) -> tuple[bool, str]:
