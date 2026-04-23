@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from bub_im_bridge.profiles import UserProfile
+from bub_im_bridge.profiles import ProfileStore, UserProfile
 
 
 def test_create_profile_generates_id():
@@ -43,3 +43,63 @@ def test_profile_preserves_body(tmp_path: Path):
     loaded = UserProfile.read(path)
     assert loaded.name == "Charlie"
     assert "技术能力扎实" in loaded.body
+
+
+def test_store_load_and_lookup(tmp_path: Path):
+    store = ProfileStore(tmp_path / "profiles")
+
+    # Create a profile manually
+    p = UserProfile.create(name="Alice", im_ids={"feishu": {"open_id": "ou_aaa"}})
+    profiles_dir = tmp_path / "profiles"
+    profiles_dir.mkdir()
+    p.write(profiles_dir / f"{p.id}.md")
+
+    store.load()
+    found = store.lookup("feishu", "open_id", "ou_aaa")
+    assert found is not None
+    assert found.name == "Alice"
+
+
+def test_store_lookup_missing(tmp_path: Path):
+    store = ProfileStore(tmp_path / "profiles")
+    store.load()
+    assert store.lookup("feishu", "open_id", "ou_missing") is None
+
+
+def test_store_upsert_creates_file(tmp_path: Path):
+    store = ProfileStore(tmp_path / "profiles")
+    store.load()
+
+    p = store.upsert(
+        platform="feishu",
+        id_field="open_id",
+        id_value="ou_new",
+        name="NewUser",
+        extra_ids={"union_id": "on_new"},
+    )
+    assert p.name == "NewUser"
+    assert p.im_ids["feishu"]["open_id"] == "ou_new"
+    assert p.im_ids["feishu"]["union_id"] == "on_new"
+
+    # File should exist on disk
+    path = tmp_path / "profiles" / f"{p.id}.md"
+    assert path.exists()
+
+    # Should be findable via lookup
+    assert store.lookup("feishu", "open_id", "ou_new") is not None
+
+
+def test_store_update_last_seen(tmp_path: Path):
+    store = ProfileStore(tmp_path / "profiles")
+    store.load()
+
+    p = store.upsert(platform="feishu", id_field="open_id", id_value="ou_xxx", name="X")
+    old_last_seen = p.last_seen
+
+    import time
+    time.sleep(0.01)  # ensure timestamp differs
+    store.touch(p.id)
+
+    updated = store.get(p.id)
+    assert updated is not None
+    assert updated.last_seen >= old_last_seen
