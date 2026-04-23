@@ -125,7 +125,7 @@ docker-compose logs -f
 ### 调试
 
 ```bash
-# 进入 boxsh 沙箱（与 agent 运行时视角一致）
+# 进入沙箱视图的调试 shell（与 agent 运行时视角一致）
 docker-compose exec bub /entrypoint.sh shell
 
 # 进入容器运行环境（查看进程、环境变量、挂载状态）
