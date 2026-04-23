@@ -9,8 +9,7 @@
 # Directory layout inside the container:
 #   /app                             (rw) application code
 #   /root                            (rw) home directory
-#   /workspace                       (cow) agent workspace (read-only base, writes go to /boxsh)
-#   /boxsh                           (rw) COW write layer for /workspace
+#   /workspace                       (ro) agent workspace
 #   /root/.agents/skills             (ro) bub skills
 #   /root/.openclaw/openclaw-weixin  (ro) weixin credentials
 #   /root/.bub                       (rw) bub home (tapes, config)
@@ -25,7 +24,8 @@ WORKSPACE="/workspace"
 BOXSH_ARGS="--sandbox \
   --bind wr:/app \
   --bind wr:/root \
-  --bind cow:$WORKSPACE:/boxsh \
+  --bind ro:/entrypoint.sh \
+  --bind ro:/workspace \
   --bind ro:/root/.agents/skills \
   --bind ro:/root/.openclaw/openclaw-weixin \
   --bind wr:/root/.bub"
