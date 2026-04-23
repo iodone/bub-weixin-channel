@@ -11,6 +11,7 @@ import re
 import threading
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, ClassVar
 
 import lark_oapi as lark
@@ -34,6 +35,7 @@ from bub_im_bridge.feishu.api import (
     format_feishu_timestamp,
     _normalize_text,
 )
+from bub_im_bridge.profiles import ProfileStore
 from bub_im_bridge.feishu.feishu_prompts import (
     FEISHU_HISTORY_HINT_GROUP,
     FEISHU_HISTORY_HINT_P2P,
@@ -138,6 +140,11 @@ class FeishuChannel(Channel):
         
         # Track message start time for elapsed time calculation
         self._message_start_time: dict[str, float] = {}
+
+        # User profile store
+        workspace = os.environ.get("BUB_WORKSPACE", os.getcwd())
+        self._profile_store = ProfileStore(Path(workspace) / "profiles")
+        self._profile_store.load()
 
     @property
     def needs_debounce(self) -> bool:
@@ -325,25 +332,36 @@ class FeishuChannel(Channel):
 
     def _should_skip(self, message: FeishuInboundMessage) -> str | None:
         """Return a reason string if the message should be silently skipped, else ``None``."""
-        if self._allow_chats and message.chat_id not in self._allow_chats:
-            return "chat_not_allowed"
-
-        if self._allow_users:
-            sender_ids = {
-                t
-                for t in (
-                    message.sender_open_id,
-                    message.sender_union_id,
-                    message.sender_user_id,
-                )
-                if t
-            }
-            if sender_ids.isdisjoint(self._allow_users):
+        
+        # 1. Admin 用户豁免所有限制
+        sender_ids = {
+            t
+            for t in (
+                message.sender_open_id,
+                message.sender_union_id,
+                message.sender_user_id,
+            )
+            if t
+        }
+        
+        # Admin 用户完全豁免
+        if any(is_admin_sender(sid) for sid in sender_ids):
+            return None
+        
+        # 2. 群聊（group/topic）：只检查 allow_chats
+        if message.is_group:
+            if self._allow_chats and message.chat_id not in self._allow_chats:
+                return "chat_not_allowed"
+        
+        # 3. 私聊（p2p）：只检查 allow_users
+        elif message.chat_type == "p2p":
+            if self._allow_users and sender_ids.isdisjoint(self._allow_users):
                 return "user_not_allowed"
-
+        
+        # 4. 空消息检查
         if not message.text.strip():
             return "empty_text"
-
+        
         return None
 
     def _check_active(self, message: FeishuInboundMessage) -> tuple[bool, str]:
@@ -386,6 +404,34 @@ class FeishuChannel(Channel):
         """Build a :class:`ChannelMessage` and route based on admin status."""
         session_id = f"feishu:{message.chat_id}"
         sender_id = message.sender_open_id or ""
+
+        # Ensure user profile exists
+        if sender_id and message.sender_type != "bot":
+            profile = self._profile_store.lookup("feishu", "open_id", sender_id)
+            if profile is not None:
+                self._profile_store.touch(profile.id)
+            else:
+                extra_ids: dict[str, str] = {}
+                if message.sender_union_id:
+                    extra_ids["union_id"] = message.sender_union_id
+                if message.sender_user_id:
+                    extra_ids["user_id"] = message.sender_user_id
+
+                info = {"name": message.sender_name or sender_id}
+                if self._api_client is not None:
+                    from bub_im_bridge.feishu.api import fetch_user_info
+                    info = fetch_user_info(self._api_client, sender_id)
+
+                self._profile_store.upsert(
+                    platform="feishu",
+                    id_field="open_id",
+                    id_value=sender_id,
+                    name=info.get("name", sender_id),
+                    extra_ids=extra_ids,
+                    department=info.get("department_id", ""),
+                    title=info.get("job_title", ""),
+                    avatar_url=info.get("avatar_url", ""),
+                )
 
         # Remember for reply
         self._last_message_id[message.chat_id] = message.message_id
