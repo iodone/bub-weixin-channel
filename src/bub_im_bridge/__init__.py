@@ -19,7 +19,7 @@ def _load_dotenv_to_environ() -> None:
         key = key.strip()
         value = value.strip().strip("'\"")
         if key and key not in os.environ:
-            os.environ[key] = value
+            os.environ[key] = os.path.expanduser(value)
 
 
 _load_dotenv_to_environ()
