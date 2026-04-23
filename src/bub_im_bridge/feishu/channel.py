@@ -48,6 +48,13 @@ from bub_im_bridge.queue import (
     is_admin_sender,
     _parse_collection,
 )
+from bub_im_bridge.tool_stats import (
+    ToolStats,
+    install_sink as install_tool_stats_sink,
+    pop as pop_tool_stats,
+    register as register_tool_stats,
+    render_footer as render_stats_footer,
+)
 
 # ---------------------------------------------------------------------------
 # Data models
@@ -141,6 +148,9 @@ class FeishuChannel(Channel):
         
         # Track message start time for elapsed time calculation
         self._message_start_time: dict[str, float] = {}
+
+        # Install loguru sink for tool execution stats (idempotent).
+        install_tool_stats_sink()
 
         # User profile store
         workspace = os.environ.get("BUB_WORKSPACE", os.getcwd())
@@ -436,6 +446,11 @@ class FeishuChannel(Channel):
         # Record start time for elapsed time calculation
         self._message_start_time[message.message_id] = time.time()
 
+        # Register a fresh ToolStats keyed by message_id; loguru sink will
+        # forward tool.call events into it until we pop() on send().
+        register_tool_stats(message.message_id)
+
+
         text = message.text.strip()
 
         # Normalize slash commands to comma commands: /tape.handoff -> ,tape.handoff
@@ -636,16 +651,19 @@ class FeishuChannel(Channel):
         if not text:
             return
 
-        # Calculate elapsed time if we have start time
+        # Calculate elapsed time and collect tool stats if we have start time
         reply_to = self._last_message_id.get(chat_id)
         elapsed_seconds = None
+        stats: ToolStats | None = None
         if reply_to and reply_to in self._message_start_time:
             start_time = self._message_start_time[reply_to]
             elapsed_seconds = time.time() - start_time
             # Clean up start time record
             del self._message_start_time[reply_to]
+            # Snapshot tool execution stats associated with this inbound message
+            stats = pop_tool_stats(reply_to)
 
-        msg_type, content_json = _build_outbound_content(text, elapsed_seconds)
+        msg_type, content_json = _build_outbound_content(text, elapsed_seconds, stats)
 
         if reply_to:
             self._reply_message(reply_to, msg_type, content_json)
@@ -922,14 +940,20 @@ def _extract_card_json(text: str) -> str | None:
     return None
 
 
-def _build_outbound_content(text: str, elapsed_seconds: float | None = None) -> tuple[str, str]:
+def _build_outbound_content(
+    text: str,
+    elapsed_seconds: float | None = None,
+    stats: ToolStats | None = None,
+) -> tuple[str, str]:
     """Build ``(msg_type, content_json)`` for a Feishu outbound message.
 
     If *text* is already a valid schema 2.0 card JSON, pass it through as-is.
     Simple plain text → ``text`` message (like a normal human reply).
     Rich content (markdown formatting) → Card JSON 2.0 ``interactive`` message.
-    
-    If elapsed_seconds is provided, append elapsed time info to the content.
+
+    If *elapsed_seconds* is provided, append an execution footer to the
+    content (elapsed time + optional tool-call statistics when *stats* is
+    non-empty).
     """
     # Detect complete card JSON produced by LLM (e.g. via feishu-card skill).
     # LLM may wrap the JSON in ```json ... ``` code fences or add surrounding text.
@@ -937,33 +961,33 @@ def _build_outbound_content(text: str, elapsed_seconds: float | None = None) -> 
     if card_json is not None:
         # If elapsed time is provided, add it to the card
         if elapsed_seconds is not None:
-            card_json = _add_elapsed_to_card(card_json, elapsed_seconds)
+            card_json = _add_elapsed_to_card(card_json, elapsed_seconds, stats)
         return "interactive", card_json
 
     # Check if content needs card rendering (has markdown syntax)
     needs_card = _needs_card(text)
-    
-    # Build elapsed time element if provided
-    elapsed_element = None
+
+    # Build footer element if we have timing info
+    footer_element = None
     if elapsed_seconds is not None:
-        elapsed_text = f"<font color='grey'>⏱️ 耗时: {elapsed_seconds:.2f}秒</font>"
-        elapsed_element = {
+        footer_text = f"<font color='grey'>{render_stats_footer(elapsed_seconds, stats)}</font>"
+        footer_element = {
             "tag": "markdown",
-            "content": elapsed_text,
+            "content": footer_text,
             "text_size": "notation"  # Small font (12px)
         }
 
-    # If no card needed and no elapsed time, return simple text
-    if not needs_card and elapsed_element is None:
+    # If no card needed and no footer, return simple text
+    if not needs_card and footer_element is None:
         return "text", json.dumps({"text": text}, ensure_ascii=False)
 
     # Build card with main content
     elements: list[dict[str, Any]] = [{"tag": "markdown", "content": text}]
-    
-    # Add elapsed time to card if provided
-    if elapsed_element is not None:
+
+    # Add footer to card if provided
+    if footer_element is not None:
         elements.append({"tag": "hr"})  # Divider
-        elements.append(elapsed_element)
+        elements.append(footer_element)
 
     card: dict[str, Any] = {
         "schema": "2.0",
@@ -972,43 +996,48 @@ def _build_outbound_content(text: str, elapsed_seconds: float | None = None) -> 
     return "interactive", json.dumps(card, ensure_ascii=False)
 
 
-def _add_elapsed_to_card(card_json: str, elapsed_seconds: float) -> str:
-    """Add elapsed time info to an existing card JSON.
-    
-    Adds a small grey text at the bottom of the card body.
+def _add_elapsed_to_card(
+    card_json: str,
+    elapsed_seconds: float,
+    stats: ToolStats | None = None,
+) -> str:
+    """Add execution footer (elapsed + tool stats) to an existing card JSON.
+
+    Appends a divider followed by a small grey text at the bottom of the
+    card body.
     """
     try:
         card = json.loads(card_json)
         if not isinstance(card, dict):
             return card_json
-        
+
         # Ensure body exists
         if "body" not in card:
             card["body"] = {}
         if not isinstance(card["body"], dict):
             return card_json
-            
+
         # Ensure elements array exists
         if "elements" not in card["body"]:
             card["body"]["elements"] = []
         if not isinstance(card["body"]["elements"], list):
             return card_json
-        
+
         # Add horizontal rule (divider)
         card["body"]["elements"].append({
             "tag": "hr"
         })
-        
-        # Add elapsed time as markdown text with grey color and small font
-        elapsed_text = f"<font color='grey'>⏱️ 耗时: {elapsed_seconds:.2f}秒</font>"
+
+        # Add footer as markdown text with grey color and small font
+        footer_text = f"<font color='grey'>{render_stats_footer(elapsed_seconds, stats)}</font>"
         card["body"]["elements"].append({
             "tag": "markdown",
-            "content": elapsed_text,
+            "content": footer_text,
             "text_size": "notation"  # Small font (12px)
         })
-        
+
         return json.dumps(card, ensure_ascii=False)
     except Exception:
         # If anything goes wrong, return original card
-        logger.exception("Failed to add elapsed time to card")
+        logger.exception("Failed to add execution footer to card")
         return card_json
