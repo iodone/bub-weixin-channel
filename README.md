@@ -125,10 +125,10 @@ docker-compose logs -f
 ### 调试
 
 ```bash
-# 进入容器调试（已在沙箱内）
-docker-compose exec bub sh
+# 进入 boxsh 沙箱调试
+docker-compose exec bub /entrypoint.sh shell
 
-# 验证 COW 写入（成功，但原始 workspace 不变）
+# 验证 COW 写入（在沙箱内，成功，但原始 workspace 不变）
 echo test > /workspace/test.txt  # COW 写入到 /boxsh
 touch /root/.bub/test.txt  # 直接可写
 ```

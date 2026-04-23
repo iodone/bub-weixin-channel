@@ -63,14 +63,14 @@ docker-compose logs -f
 
 ### 进入容器调试
 
-由于容器启动时已经在 boxsh 沙箱内运行，直接使用 `docker-compose exec` 即可进入沙箱环境：
+boxsh 沙箱运行在 entrypoint 的子进程中，`docker-compose exec` 进入的是容器原始 namespace，**不在沙箱内**。要进入沙箱环境，需通过 entrypoint：
 
 ```bash
-# 进入交互式 shell（已在沙箱内）
-docker-compose exec bub sh
+# 进入 boxsh 沙箱的交互式 shell
+docker-compose exec bub /entrypoint.sh shell
 
-# 或使用 bash
-docker-compose exec bub bash
+# 直接在容器内执行（不在沙箱内，用于排查挂载等问题）
+docker-compose exec bub sh
 ```
 
 在沙箱内，你可以验证 COW 和只读保护：
@@ -97,14 +97,14 @@ echo "success" > /root/.bub/test.txt
 ### 执行单个命令
 
 ```bash
-# 查看文件
-docker-compose exec bub ls -la /workspace
+# 在沙箱内查看文件（通过 entrypoint）
+docker-compose exec bub /entrypoint.sh ls -la /workspace
 
-# 查看 bub 配置
-docker-compose exec bub cat /root/.bub/config.yaml
+# 在沙箱内查看 bub 配置
+docker-compose exec bub /entrypoint.sh cat /root/.bub/config.yaml
 
-# 测试 COW 写入（成功，但不影响原始 workspace）
-docker-compose exec bub sh -c "echo test > /workspace/test.txt && cat /workspace/test.txt"
+# 测试 COW 写入（在沙箱内，成功，但不影响原始 workspace）
+docker-compose exec bub /entrypoint.sh sh -c "echo test > /workspace/test.txt && cat /workspace/test.txt"
 # 输出：test
 ```
 
@@ -170,16 +170,17 @@ BUB_TELEGRAM_PROXY=http://127.0.0.1:1087
 
 ## 验证沙箱是否生效
 
-进入容器后，运行以下命令验证：
+进入 boxsh 沙箱后，运行以下命令验证：
 
 ```bash
-docker-compose exec bub sh
+docker-compose exec bub /entrypoint.sh shell
 
-# 在容器内执行：
+# 在沙箱内执行：
 
-# 1. 测试只读约束
-touch /workspace/test.txt
-# 预期输出：Read-only file system 或 Permission denied
+# 1. 测试 COW 写入（成功，但原始 workspace 不变）
+echo test > /workspace/test.txt
+cat /workspace/test.txt
+# 预期输出：test
 
 # 2. 测试可写目录
 touch /root/.bub/test.txt
