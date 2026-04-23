@@ -28,18 +28,30 @@ set -e
 
 WORKSPACE="/workspace"
 
-# --- COW overlay setup ---
-# Set up fuse-overlayfs manually (not via boxsh cow:) so that:
-# 1. The merged view is at /workspace (natural path)
-# 2. allow_other lets docker exec processes access the overlay
-mkdir -p /tmp/overlay-lower /tmp/overlay-work
+# --- Debug modes (via docker exec) ---
+# docker exec enters PID 1's sandbox namespace where the COW overlay
+# is already set up. Just exec a shell — no overlay init needed.
+if [ "$1" = "shell" ] || [ "$1" = "sh" ]; then
+  shift
+  exec sh "$@"
+fi
+
+if [ $# -gt 0 ]; then
+  exec sh -c "$*"
+fi
+
+# --- Service startup (no args) ---
+
+# COW overlay: set up fuse-overlayfs so /workspace becomes the merged view.
+# allow_other lets docker exec processes access the overlay.
+# workdir must be on the same filesystem as upperdir (/boxsh).
+mkdir -p /tmp/overlay-lower /boxsh/.overlay-work
 mount --bind $WORKSPACE /tmp/overlay-lower
 fuse-overlayfs \
-  -o "lowerdir=/tmp/overlay-lower,upperdir=/boxsh,workdir=/tmp/overlay-work,allow_other" \
+  -o "lowerdir=/tmp/overlay-lower,upperdir=/boxsh,workdir=/boxsh/.overlay-work,allow_other" \
   $WORKSPACE
 
-# --- boxsh sandbox ---
-# /workspace is now the COW overlay; boxsh just binds it as writable.
+# boxsh sandbox: /workspace is now the COW overlay, bind it as writable.
 BOXSH_ARGS="--sandbox \
   --bind wr:/app \
   --bind wr:/root \
@@ -49,16 +61,4 @@ BOXSH_ARGS="--sandbox \
   --bind ro:/root/.openclaw/openclaw-weixin \
   --bind wr:/root/.bub"
 
-# 如果没有参数，启动服务
-if [ $# -eq 0 ]; then
-  exec boxsh $BOXSH_ARGS -c "cd /app && uv run bub -w '$WORKSPACE' gateway"
-fi
-
-# Debug modes: docker exec enters PID 1's sandbox namespace.
-# /workspace is accessible (allow_other on fuse-overlayfs).
-if [ "$1" = "shell" ] || [ "$1" = "sh" ]; then
-  shift
-  exec sh "$@"
-fi
-
-exec sh -c "$*"
+exec boxsh $BOXSH_ARGS -c "cd /app && uv run bub -w '$WORKSPACE' gateway"
