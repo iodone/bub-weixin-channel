@@ -333,16 +333,13 @@ class FeishuChannel(Channel):
 
     def _should_skip(self, message: FeishuInboundMessage) -> str | None:
         """Return a reason string if the message should be silently skipped, else ``None``."""
-        # For group chats (chat_id starts with "oc_"), check allow_chats
-        # For p2p chats (chat_id is user's open_id), check allow_users
-        is_group_chat = message.chat_id.startswith("oc_")
-        
-        if is_group_chat:
-            # Group chat: check allow_chats restriction
+        if is_admin_sender(message.sender_open_id):
+            return None
+
+        if message.is_group:
             if self._allow_chats and message.chat_id not in self._allow_chats:
                 return "chat_not_allowed"
         else:
-            # P2P chat: check allow_users restriction
             if self._allow_users:
                 sender_ids = {
                     t
