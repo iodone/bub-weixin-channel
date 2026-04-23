@@ -26,6 +26,7 @@ BOXSH_ARGS="--sandbox \
   --bind wr:/app \
   --bind wr:/root \
   --bind ro:/entrypoint.sh \
+  --bind wr:/boxsh \
   --bind cow:$WORKSPACE:/boxsh \
   --bind ro:/root/.agents/skills \
   --bind ro:/root/.openclaw/openclaw-weixin \
