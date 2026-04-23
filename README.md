@@ -127,7 +127,10 @@ docker-compose logs -f
 # 进入 boxsh 沙箱（与 agent 运行时视角一致）
 docker-compose exec bub /entrypoint.sh shell
 
-# 进入容器原始环境（排查镜像、挂载问题）
+# 进入容器运行环境（查看进程、环境变量、挂载状态）
+docker-compose exec bub bash
+
+# 进入原始镜像环境（绕过 boxsh，排查镜像内容）
 docker-compose run --rm --entrypoint sh bub
 ```
 
