@@ -280,26 +280,7 @@ def _fetch_user_name(client: lark.Client, open_id: str) -> str:
     Requires ``contact:user.base:readonly`` permission. Falls back to
     *open_id* if the app lacks permission (error 41050).
     """
-    try:
-        from lark_oapi.api.contact.v3 import GetUserRequest
-
-        req = GetUserRequest.builder().user_id(open_id).user_id_type("open_id").build()
-        resp = client.contact.v3.user.get(req)
-        if resp.success():
-            user = getattr(resp, "data", None)
-            user_obj = getattr(user, "user", None) if user else None
-            if user_obj:
-                return getattr(user_obj, "name", None) or open_id
-        else:
-            logger.debug(
-                "feishu.api.fetch_user_name failed open_id={} code={} msg={}",
-                open_id,
-                resp.code,
-                resp.msg,
-            )
-    except Exception:
-        logger.debug("feishu.api.fetch_user_name error open_id={}", open_id)
-    return open_id
+    return fetch_user_info(client, open_id)["name"]
 
 
 def fetch_user_info(client: lark.Client, open_id: str) -> dict[str, str]:
@@ -326,7 +307,7 @@ def fetch_user_info(client: lark.Client, open_id: str) -> dict[str, str]:
                     "name": getattr(user_obj, "name", None) or open_id,
                     "department_id": getattr(user_obj, "department_id", None) or "",
                     "job_title": getattr(user_obj, "job_title", None) or "",
-                    "avatar_url": getattr(avatar, "avatar_72", None) or "" if avatar else "",
+                    "avatar_url": (getattr(avatar, "avatar_72", None) or "") if avatar else "",
                 }
         else:
             logger.debug(

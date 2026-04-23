@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -68,7 +68,7 @@ class UserProfile:
 
     def write(self, path: Path) -> None:
         """Serialize profile to a Markdown file with YAML frontmatter."""
-        front = {k: v for k, v in asdict(self).items() if k != "body" and v}
+        front = {k: v for k, v in asdict(self).items() if k != "body"}
         content = "---\n" + yaml.dump(front, allow_unicode=True, sort_keys=False) + "---\n"
         if self.body:
             content += "\n" + self.body
@@ -160,13 +160,7 @@ class ProfileStore:
         if profile is None:
             return
         now = _now_iso()
-        updated = UserProfile(
-            **{
-                **{k: v for k, v in profile.__dict__.items() if k != "last_seen" and k != "updated_at"},
-                "last_seen": now,
-                "updated_at": now,
-            }
-        )
+        updated = replace(profile, last_seen=now, updated_at=now)
         self._profiles[profile_id] = updated
         self._write(updated)
 
