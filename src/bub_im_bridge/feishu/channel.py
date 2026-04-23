@@ -144,7 +144,7 @@ class FeishuChannel(Channel):
 
         # User profile store
         workspace = os.environ.get("BUB_WORKSPACE", os.getcwd())
-        self._profile_store = ProfileStore(Path(workspace) / "profiles")
+        self._profile_store = ProfileStore(Path(workspace).expanduser() / "profiles")
         self._profile_store.load()
 
     @property
