@@ -153,8 +153,8 @@ class FeishuChannel(Channel):
         install_tool_stats_sink()
 
         # User profile store
-        workspace = os.environ.get("BUB_WORKSPACE", os.getcwd())
-        self._profile_store = ProfileStore(Path(workspace).expanduser() / "profiles")
+        workspace = self._framework.workspace if self._framework else Path.cwd()
+        self._profile_store = ProfileStore(Path(workspace) / "profiles")
         self._profile_store.load()
 
     @property

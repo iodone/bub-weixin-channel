@@ -114,8 +114,8 @@ def _get_profile_store(context: ToolContext) -> ProfileStore:
     if store is not None:
         return store
     # Fallback: create a store if not injected (e.g., comma-command without channel)
-    workspace = context.state.get("_runtime_workspace") or os.environ.get("BUB_WORKSPACE", os.getcwd())
-    store = ProfileStore(Path(workspace).expanduser() / "profiles")
+    workspace = context.state.get("_runtime_workspace") or os.getcwd()
+    store = ProfileStore(Path(workspace) / "profiles")
     store.load()
     return store
 

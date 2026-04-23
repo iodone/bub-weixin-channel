@@ -2,6 +2,8 @@ services:
   bub:
     build: .
     env_file: .env
+    environment:
+      - TZ=${TZ:-Asia/Shanghai}
     volumes:
       - ${BUB_WORKSPACE}:/workspace-base
       - ${BUB_BOXSH}:/workspace
