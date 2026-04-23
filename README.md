@@ -90,7 +90,7 @@ uv run bub gateway
 
 ## Docker 部署
 
-容器内通过 [boxsh](https://github.com/xicilion/boxsh) 沙箱运行，Agent 执行的命令只能写入 `~/.bub`，无法修改工作空间和凭据。
+容器内通过 [boxsh](https://github.com/xicilion/boxsh) 沙箱运行，Agent 对工作空间的写入通过 COW（写时复制）隔离到独立目录，原始工作空间不受影响。
 
 ### 快速开始
 
@@ -100,7 +100,7 @@ cp .env.example .env
 # 编辑 .env，填入 BUB_WORKSPACE 等配置
 
 # 2. 创建必要目录
-mkdir -p ~/.bub ~/.agents/skills
+mkdir -p ~/.bub ~/.agents/skills ~/work/boxsh
 
 # 3. 微信渠道需要先登录
 uv run -m bub_im_bridge login
@@ -116,7 +116,8 @@ docker-compose logs -f
 
 | 目录 | 权限 | 说明 |
 |------|------|------|
-| `/workspace` | 🔒 只读 | Agent 工作空间（防止意外修改） |
+| `/workspace` | 🐄 COW | Agent 工作空间（只读基座，写入落到 /boxsh） |
+| `/boxsh` | ✏️ 可写 | COW 写层，持久化 agent 对 workspace 的修改 |
 | `/root/.agents/skills` | 🔒 只读 | Bub 技能目录 |
 | `/root/.openclaw/openclaw-weixin` | 🔒 只读 | 微信登录凭据 |
 | `/root/.bub` | ✏️ 可写 | Bub 运行数据（tapes、配置） |
@@ -127,9 +128,9 @@ docker-compose logs -f
 # 进入容器调试（已在沙箱内）
 docker-compose exec bub sh
 
-# 验证只读保护
-touch /workspace/test.txt  # 应该失败
-touch /root/.bub/test.txt  # 应该成功
+# 验证 COW 写入（成功，但原始 workspace 不变）
+echo test > /workspace/test.txt  # COW 写入到 /boxsh
+touch /root/.bub/test.txt  # 直接可写
 ```
 
 📖 **详细文档**：[docs/DOCKER_USAGE.md](docs/DOCKER_USAGE.md)

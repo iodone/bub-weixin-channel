@@ -15,7 +15,7 @@ cp .env.example .env
 ### 2. 创建必要目录
 
 ```bash
-mkdir -p ~/.bub ~/.agents/skills
+mkdir -p ~/.bub ~/.agents/skills ~/work/boxsh
 ```
 
 ### 3. 微信渠道登录（可选）
@@ -42,7 +42,8 @@ docker-compose logs -f
 
 | 容器内路径 | 环境变量 | 默认值 | 沙箱权限 | 说明 |
 |-----------|---------|-------|---------|------|
-| `/workspace` | `BUB_WORKSPACE` | (必需) | 🔒 只读 | Agent 工作空间 |
+| `/workspace` | `BUB_WORKSPACE` | (必需) | 🐄 COW | Agent 工作空间（只读基座，写入落到 /boxsh） |
+| `/boxsh` | `BUB_BOXSH` | `~/work/boxsh` | ✏️ 可写 | COW 写层，持久化 agent 对 /workspace 的修改 |
 | `/root/.agents/skills` | `BUB_SKILLS` | `~/.agents/skills` | 🔒 只读 | Bub 技能目录 |
 | `/root/.openclaw/openclaw-weixin` | `BUB_WEIXIN_DATA` | `~/.openclaw/openclaw-weixin` | 🔒 只读 | 微信登录凭据 |
 | `/root/.bub` | `BUB_HOME` | `~/.bub` | ✏️ 可写 | Bub 运行数据（tapes、配置） |
@@ -53,10 +54,10 @@ docker-compose logs -f
 
 - ✅ Agent 可以读取 workspace、skills、weixin 配置
 - ✅ Agent 可以在 `/root/.bub` 中写入 tapes 和配置
-- ❌ Agent **无法**修改 workspace（防止意外破坏）
+- ✅ Agent 对 `/workspace` 的写操作通过 COW 落到 `/boxsh`，原始 workspace 不受影响
 - ❌ Agent **无法**修改 skills 和 weixin 配置（防止意外覆盖）
 
-即使 AI agent 生成了 `rm -rf /workspace` 这样的危险命令，也不会对宿主机造成影响。
+即使 AI agent 生成了 `rm -rf /workspace` 这样的危险命令，也不会对宿主机的原始 workspace 造成影响。所有写入、删除、覆盖都沉淀到宿主机 `$BUB_BOXSH` 目录。
 
 ## 调试和运维
 
@@ -72,12 +73,17 @@ docker-compose exec bub sh
 docker-compose exec bub bash
 ```
 
-在沙箱内，你可以验证只读保护：
+在沙箱内，你可以验证 COW 和只读保护：
 
 ```bash
-# 测试只读约束（应该失败）
-touch /workspace/test.txt
-# 输出：Read-only file system
+# 测试 COW 写入（应该成功，但不修改原始 workspace）
+echo "test" > /workspace/test.txt
+cat /workspace/test.txt
+# 输出：test（通过 COW 层读取）
+
+# 在宿主机验证原始 workspace 未被修改
+# ls ~/work/github/bub-im-bridge/test.txt → 不存在
+# ls ~/work/boxsh/test.txt → 存在（COW 写层）
 
 # 测试 skills 目录只读（应该失败）
 touch /root/.agents/skills/test.txt  
@@ -97,9 +103,9 @@ docker-compose exec bub ls -la /workspace
 # 查看 bub 配置
 docker-compose exec bub cat /root/.bub/config.yaml
 
-# 测试只读保护
-docker-compose exec bub touch /workspace/test.txt
-# 输出：Read-only file system
+# 测试 COW 写入（成功，但不影响原始 workspace）
+docker-compose exec bub sh -c "echo test > /workspace/test.txt && cat /workspace/test.txt"
+# 输出：test
 ```
 
 ### 查看日志
@@ -143,6 +149,7 @@ BUB_API_KEY=sk-ant-xxxxx
 
 ```bash
 # Bub 相关目录（使用默认值即可）
+BUB_BOXSH=~/work/boxsh
 BUB_SKILLS=~/.agents/skills
 BUB_WEIXIN_DATA=~/.openclaw/openclaw-weixin
 BUB_HOME=~/.bub
@@ -194,8 +201,12 @@ mount | grep -E "bind|overlay" | grep -v "lowerdir=/var/lib/docker"
 
 ```
 宿主机
+ ├── $BUB_WORKSPACE (原始工作区，不被修改)
+ ├── $BUB_BOXSH (COW 写层，持久化 agent 写入)
  └── Docker 容器
-      └── boxsh 沙箱
+      ├── /workspace ← $BUB_WORKSPACE
+      ├── /boxsh ← $BUB_BOXSH
+      └── boxsh 沙箱 (cow:/workspace:/boxsh)
            └── bub gateway 进程
 ```
 
@@ -258,6 +269,7 @@ docker-compose up -d
 A: 不会。所有重要数据都通过 volume 挂载，存储在宿主机上：
 - `/root/.bub` → `$BUB_HOME`（tapes、配置）
 - `/root/.openclaw/openclaw-weixin` → `$BUB_WEIXIN_DATA`（微信凭据）
+- `/boxsh` → `$BUB_BOXSH`（agent 对 workspace 的 COW 写入）
 
 容器删除重建后，这些数据仍然存在。
 
@@ -281,7 +293,7 @@ docker exec -it bub /entrypoint.sh ls -la /root/.bub/tapes/
 
 ```bash
 BOXSH_ARGS="--sandbox \
-  --bind ro:$WORKSPACE \
+  --bind cow:$WORKSPACE:/boxsh \
   --bind ro:/root/.agents/skills \
   --bind ro:/root/.openclaw/openclaw-weixin \
   --bind wr:/root/.bub"
