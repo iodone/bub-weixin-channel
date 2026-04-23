@@ -6,7 +6,7 @@
 #   entrypoint.sh shell        - Interactive shell in boxsh sandbox
 #   entrypoint.sh <command>    - Run command in boxsh sandbox
 #
-# Directory layout inside the container:
+# Directory layout inside the sandbox:
 #   /app                             (rw) application code
 #   /root                            (rw) home directory
 #   /workspace                       (cow) agent workspace (COW merged view)
@@ -21,20 +21,6 @@
 
 set -e
 
-# --- Debug modes (via docker exec) ---
-# docker exec enters PID 1's sandbox namespace, so /workspace-base is not
-# visible (only sandbox-bound paths exist). Just exec a shell directly —
-# it already inherits the sandbox's COW view of /workspace.
-if [ "$1" = "shell" ] || [ "$1" = "sh" ]; then
-  shift
-  exec sh "$@"
-fi
-
-if [ $# -gt 0 ]; then
-  exec sh -c "$*"
-fi
-
-# --- Service startup (no args) ---
 BOXSH_ARGS="--sandbox \
   --bind wr:/app \
   --bind wr:/root \
@@ -44,4 +30,27 @@ BOXSH_ARGS="--sandbox \
   --bind ro:/root/.openclaw/openclaw-weixin \
   --bind wr:/root/.bub"
 
-exec boxsh $BOXSH_ARGS -c "cd /app && uv run bub -w /workspace gateway"
+# 如果没有参数，启动服务
+if [ $# -eq 0 ]; then
+  exec boxsh $BOXSH_ARGS -c "cd /app && uv run bub -w /workspace gateway"
+fi
+
+# 如果第一个参数是 "shell" 或 "sh"，启动交互式 shell
+if [ "$1" = "shell" ] || [ "$1" = "sh" ]; then
+  shift
+  if [ -d /workspace-base ]; then
+    # Fresh container (docker-compose run --rm): start new boxsh sandbox
+    exec boxsh $BOXSH_ARGS "$@"
+  else
+    # Inside existing sandbox (docker exec): /workspace-base not visible,
+    # just exec sh — it inherits the sandbox's mount namespace
+    exec sh "$@"
+  fi
+fi
+
+# 否则，在 boxsh 中执行传入的命令
+if [ -d /workspace-base ]; then
+  exec boxsh $BOXSH_ARGS -c "$*"
+else
+  exec sh -c "$*"
+fi
