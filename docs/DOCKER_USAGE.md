@@ -42,8 +42,7 @@ docker-compose logs -f
 
 | 容器内路径 | 环境变量 | 默认值 | 沙箱权限 | 说明 |
 |-----------|---------|-------|---------|------|
-| `/workspace` | `BUB_WORKSPACE` | (必需) | 🐄 COW | Agent 工作空间（只读基座，写入落到 /boxsh） |
-| `/boxsh` | `BUB_BOXSH` | `~/work/boxsh/bub-im-bridge` | ✏️ 可写 | COW 写层，持久化 agent 对 /workspace 的修改 |
+| `/workspace` | `BUB_WORKSPACE` | (必需) | 🔒 只读 | Agent 工作空间 |
 | `/root/.agents/skills` | `BUB_SKILLS` | `~/.agents/skills` | 🔒 只读 | Bub 技能目录 |
 | `/root/.openclaw/openclaw-weixin` | `BUB_WEIXIN_DATA` | `~/.openclaw/openclaw-weixin` | 🔒 只读 | 微信登录凭据 |
 | `/root/.bub` | `BUB_HOME` | `~/.bub` | ✏️ 可写 | Bub 运行数据（tapes、配置） |
@@ -54,36 +53,33 @@ docker-compose logs -f
 
 - ✅ Agent 可以读取 workspace、skills、weixin 配置
 - ✅ Agent 可以在 `/root/.bub` 中写入 tapes 和配置
-- ✅ Agent 对 `/workspace` 的写操作通过 COW 落到 `/boxsh`，原始 workspace 不受影响
+- ❌ Agent **无法**修改 workspace（只读）
 - ❌ Agent **无法**修改 skills 和 weixin 配置（防止意外覆盖）
 
-即使 AI agent 生成了 `rm -rf /workspace` 这样的危险命令，也不会对宿主机的原始 workspace 造成影响。所有写入、删除、覆盖都沉淀到宿主机 `$BUB_BOXSH` 目录。
+即使 AI agent 生成了 `rm -rf /workspace` 这样的危险命令，也不会对宿主机的原始 workspace 造成影响。
 
 ## 调试和运维
 
 ### 进入容器调试
 
-entrypoint 通过 `exec boxsh --sandbox ...` 启动服务，boxsh 会为其命令树创建独立的 mount namespace（沙箱视图）。`docker-compose exec` 新起的进程不属于该命令树，进入的是容器原始 namespace，**不在沙箱内**。要进入沙箱环境，需通过 entrypoint 重新创建一个沙箱：
+容器内有两层环境：**容器原始环境**和 **boxsh 沙箱环境**。entrypoint 通过 `exec boxsh --sandbox ...` 启动服务，boxsh 会为其命令树创建独立的 mount namespace（沙箱视图）。`docker-compose exec` 新起的进程会进入该 namespace，但不会自动经过 boxsh 初始化。
 
 ```bash
-# 进入 boxsh 沙箱的交互式 shell
+# 进入 boxsh 沙箱（与 agent 运行时视角一致）
 docker-compose exec bub /entrypoint.sh shell
 
-# 直接在容器内执行（不在沙箱内，用于排查挂载等问题）
-docker-compose exec bub sh
+# 进入容器原始环境（不在沙箱内，用于排查镜像、挂载等问题）
+docker-compose run --rm --entrypoint sh bub
 ```
 
-在沙箱内，你可以验证 COW 和只读保护：
+> **注意**：`docker-compose exec bub sh` 进入的是 boxsh 的 mount namespace 但未经过沙箱初始化，看到的文件系统可能不完整。推荐使用上面两种方式。
+
+在沙箱内，你可以验证只读保护：
 
 ```bash
-# 测试 COW 写入（应该成功，但不修改原始 workspace）
+# 测试 workspace 只读（应该失败）
 echo "test" > /workspace/test.txt
-cat /workspace/test.txt
-# 输出：test（通过 COW 层读取）
-
-# 在宿主机验证原始 workspace 未被修改
-# ls ~/work/github/bub-im-bridge/test.txt → 不存在
-# ls ~/work/boxsh/bub-im-bridge/test.txt → 存在（COW 写层）
+# 输出：Read-only file system
 
 # 测试 skills 目录只读（应该失败）
 touch /root/.agents/skills/test.txt  
@@ -102,10 +98,6 @@ docker-compose exec bub /entrypoint.sh ls -la /workspace
 
 # 在沙箱内查看 bub 配置
 docker-compose exec bub /entrypoint.sh cat /root/.bub/config.yaml
-
-# 测试 COW 写入（在沙箱内，成功，但不影响原始 workspace）
-docker-compose exec bub /entrypoint.sh sh -c "echo test > /workspace/test.txt && cat /workspace/test.txt"
-# 输出：test
 ```
 
 ### 查看日志
@@ -177,10 +169,9 @@ docker-compose exec bub /entrypoint.sh shell
 
 # 在沙箱内执行：
 
-# 1. 测试 COW 写入（成功，但原始 workspace 不变）
+# 1. 测试 workspace 只读
 echo test > /workspace/test.txt
-cat /workspace/test.txt
-# 预期输出：test
+# 预期输出：Read-only file system
 
 # 2. 测试可写目录
 touch /root/.bub/test.txt
@@ -203,11 +194,9 @@ mount | grep -E "bind|overlay" | grep -v "lowerdir=/var/lib/docker"
 ```
 宿主机
  ├── $BUB_WORKSPACE (原始工作区，不被修改)
- ├── $BUB_BOXSH (COW 写层，持久化 agent 写入)
  └── Docker 容器
       ├── /workspace ← $BUB_WORKSPACE
-      ├── /boxsh ← $BUB_BOXSH
-      └── boxsh 沙箱 (cow:/workspace:/boxsh)
+      └── boxsh 沙箱 (ro:/workspace)
            └── bub gateway 进程
 ```
 

@@ -116,8 +116,7 @@ docker-compose logs -f
 
 | 目录 | 权限 | 说明 |
 |------|------|------|
-| `/workspace` | 🐄 COW | Agent 工作空间（只读基座，写入落到 /boxsh） |
-| `/boxsh` | ✏️ 可写 | COW 写层，持久化 agent 对 workspace 的修改 |
+| `/workspace` | 🔒 只读 | Agent 工作空间 |
 | `/root/.agents/skills` | 🔒 只读 | Bub 技能目录 |
 | `/root/.openclaw/openclaw-weixin` | 🔒 只读 | 微信登录凭据 |
 | `/root/.bub` | ✏️ 可写 | Bub 运行数据（tapes、配置） |
@@ -125,12 +124,11 @@ docker-compose logs -f
 ### 调试
 
 ```bash
-# 进入 boxsh 沙箱调试
+# 进入 boxsh 沙箱（与 agent 运行时视角一致）
 docker-compose exec bub /entrypoint.sh shell
 
-# 验证 COW 写入（在沙箱内，成功，但原始 workspace 不变）
-echo test > /workspace/test.txt  # COW 写入到 /boxsh
-touch /root/.bub/test.txt  # 直接可写
+# 进入容器原始环境（排查镜像、挂载问题）
+docker-compose run --rm --entrypoint sh bub
 ```
 
 📖 **详细文档**：[docs/DOCKER_USAGE.md](docs/DOCKER_USAGE.md)
