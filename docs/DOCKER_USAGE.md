@@ -63,7 +63,7 @@ docker-compose logs -f
 
 ### 进入容器调试
 
-boxsh 沙箱运行在 entrypoint 的子进程中，`docker-compose exec` 进入的是容器原始 namespace，**不在沙箱内**。要进入沙箱环境，需通过 entrypoint：
+entrypoint 通过 `exec boxsh --sandbox ...` 启动服务，boxsh 会为其命令树创建独立的 mount namespace（沙箱视图）。`docker-compose exec` 新起的进程不属于该命令树，进入的是容器原始 namespace，**不在沙箱内**。要进入沙箱环境，需通过 entrypoint 重新创建一个沙箱：
 
 ```bash
 # 进入 boxsh 沙箱的交互式 shell
