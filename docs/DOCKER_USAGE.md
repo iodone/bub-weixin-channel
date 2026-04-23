@@ -63,16 +63,17 @@ docker-compose logs -f
 
 ### 进入容器调试
 
-entrypoint 通过 `exec boxsh --sandbox ...` 启动服务，boxsh 使用 `cow:/workspace-base:/workspace` 建立 COW overlay 并创建独立的 mount namespace（沙箱视图）。`docker-compose exec` 新起的进程会进入该 namespace。
+entrypoint 通过 `exec boxsh --sandbox ...` 启动服务，boxsh 使用 `cow:/workspace-base:/workspace` 建立 COW overlay 并创建独立的 mount namespace（沙箱视图）。
 
 ```bash
-# 1. 进入沙箱视图的调试 shell（与 agent 运行时视角一致）
-#    /workspace 可读写（COW merged view），skills/weixin 只读
-docker-compose exec bub /entrypoint.sh shell
+# 1. 启动与 bub 同配置的新 boxsh 调试实例（推荐）
+#    /workspace 可读写（独立的 COW merged view），skills/weixin 只读
+#    适合验证 agent 在沙箱中的行为、测试文件读写
+docker-compose run --rm bub /entrypoint.sh shell
 
-# 2. 进入容器运行环境（同样在 boxsh 的 mount namespace 内）
-#    适合看进程、环境变量、运行中挂载状态
-docker-compose exec bub bash
+# 2. 查看当前运行态（继承服务的沙箱视图）
+#    可查看进程、环境变量、/root/.bub 等，但 /workspace 受 fuse 限制不可访问
+docker-compose exec bub /entrypoint.sh shell
 
 # 3. 进入原始镜像环境（绕过 boxsh，启动新容器）
 #    适合排查镜像内容、确认文件是否被正确打包
