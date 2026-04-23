@@ -40,6 +40,7 @@ from bub_im_bridge.feishu.feishu_prompts import (
     FEISHU_HISTORY_HINT_GROUP,
     FEISHU_HISTORY_HINT_P2P,
     FEISHU_OUTPUT_INSTRUCTION,
+    build_user_context_hint,
 )
 from bub_im_bridge.queue import (
     PriorityMessageQueue,
@@ -332,36 +333,32 @@ class FeishuChannel(Channel):
 
     def _should_skip(self, message: FeishuInboundMessage) -> str | None:
         """Return a reason string if the message should be silently skipped, else ``None``."""
+        # For group chats (chat_id starts with "oc_"), check allow_chats
+        # For p2p chats (chat_id is user's open_id), check allow_users
+        is_group_chat = message.chat_id.startswith("oc_")
         
-        # 1. Admin 用户豁免所有限制
-        sender_ids = {
-            t
-            for t in (
-                message.sender_open_id,
-                message.sender_union_id,
-                message.sender_user_id,
-            )
-            if t
-        }
-        
-        # Admin 用户完全豁免
-        if any(is_admin_sender(sid) for sid in sender_ids):
-            return None
-        
-        # 2. 群聊（group/topic）：只检查 allow_chats
-        if message.is_group:
+        if is_group_chat:
+            # Group chat: check allow_chats restriction
             if self._allow_chats and message.chat_id not in self._allow_chats:
                 return "chat_not_allowed"
-        
-        # 3. 私聊（p2p）：只检查 allow_users
-        elif message.chat_type == "p2p":
-            if self._allow_users and sender_ids.isdisjoint(self._allow_users):
-                return "user_not_allowed"
-        
-        # 4. 空消息检查
+        else:
+            # P2P chat: check allow_users restriction
+            if self._allow_users:
+                sender_ids = {
+                    t
+                    for t in (
+                        message.sender_open_id,
+                        message.sender_union_id,
+                        message.sender_user_id,
+                    )
+                    if t
+                }
+                if sender_ids.isdisjoint(self._allow_users):
+                    return "user_not_allowed"
+
         if not message.text.strip():
             return "empty_text"
-        
+
         return None
 
     def _check_active(self, message: FeishuInboundMessage) -> tuple[bool, str]:
@@ -523,8 +520,12 @@ class FeishuChannel(Channel):
             FEISHU_HISTORY_HINT_GROUP if message.is_group else FEISHU_HISTORY_HINT_P2P
         )
 
+        # Inject sender profile context
+        sender_profile = self._profile_store.lookup("feishu", "open_id", sender_id) if sender_id else None
+        user_context_hint = build_user_context_hint(sender_profile)
+
         payload: dict[str, Any] = {
-            "message": message.text + FEISHU_OUTPUT_INSTRUCTION + history_hint,
+            "message": message.text + FEISHU_OUTPUT_INSTRUCTION + history_hint + user_context_hint,
             "message_id": message.message_id,
             "chat_type": message.chat_type,
             "sender_id": sender_id,
@@ -537,12 +538,13 @@ class FeishuChannel(Channel):
 
         local_time = format_feishu_timestamp(message.create_time)
 
-        # Inject API client into context for tool access (like schedule injects scheduler)
+        # Inject API client and profile store into context for tool access
         context: dict[str, Any] = {"sender_id": sender_id}
         if local_time:
             context["date"] = local_time
         if self._api_client is not None:
             context["_feishu_api_client"] = self._api_client
+        context["_profile_store"] = self._profile_store
 
         return ChannelMessage(
             session_id=session_id,

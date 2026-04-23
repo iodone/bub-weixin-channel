@@ -1,5 +1,36 @@
 """Feishu-specific prompt instructions appended to user messages."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from bub_im_bridge.profiles import UserProfile
+
+
+def build_user_context_hint(profile: UserProfile | None) -> str:
+    """Build a prompt hint with sender profile context and tool usage guidance."""
+    tool_hints = (
+        "当消息中提及其他用户（如 @某某）时，使用 user.lookup 工具查询该用户的 profile。\n"
+        "当你观察到用户的行为特征、兴趣爱好等信息时，使用 user.update 工具记录到对应 profile。\n"
+        "当需要查找某人或搜索特定用户时，使用 user.search 工具。"
+    )
+
+    if profile is None:
+        return f"\n\n<user_context>\n{tool_hints}\n</user_context>"
+
+    parts = [f"\n\n<user_context>\n发送者: {profile.name}"]
+    if profile.department or profile.title:
+        parts.append(f"部门/职位: {profile.department} / {profile.title}")
+    if profile.personality:
+        parts.append(f"个性特征: {', '.join(profile.personality)}")
+    if profile.interests:
+        parts.append(f"兴趣爱好: {', '.join(profile.interests)}")
+    parts.append("")
+    parts.append(tool_hints)
+    parts.append("</user_context>")
+    return "\n".join(parts)
+
 FEISHU_OUTPUT_INSTRUCTION = """\
 
 <output_format>
