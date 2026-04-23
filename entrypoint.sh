@@ -9,18 +9,15 @@
 # Directory layout inside the sandbox:
 #   /app                             (rw) application code
 #   /root                            (rw) home directory
-#   /boxsh                           (cow) agent workspace (COW merged view)
+#   /workspace                       (cow) agent workspace (COW merged view)
 #   /root/.agents/skills             (ro) bub skills
 #   /root/.openclaw/openclaw-weixin  (ro) weixin credentials
 #   /root/.bub                       (rw) bub home (tapes, config)
 #
 # COW via boxsh native cow:SRC:DST:
-#   SRC (/workspace) = read-only base (Docker volume from host workspace)
-#   DST (/boxsh)     = overlay mount point / merged view in sandbox
-#   Writes persist to host's $BUB_BOXSH via Docker volume at /boxsh.
-#
-# Note: /workspace is NOT visible inside the sandbox. The agent workspace
-# is at /boxsh (the COW merged view).
+#   SRC (/workspace-base) = read-only base (Docker volume from host workspace)
+#   DST (/workspace)      = overlay mount point / merged view in sandbox
+#   Writes persist to host's $BUB_BOXSH via Docker volume at /workspace (COW upper layer).
 
 set -e
 
@@ -40,9 +37,9 @@ BOXSH_ARGS="--sandbox \
   --bind wr:/app \
   --bind wr:/root \
   --bind ro:/entrypoint.sh \
-  --bind cow:/workspace:/boxsh \
+  --bind cow:/workspace-base:/workspace \
   --bind ro:/root/.agents/skills \
   --bind ro:/root/.openclaw/openclaw-weixin \
   --bind wr:/root/.bub"
 
-exec boxsh $BOXSH_ARGS -c "cd /app && uv run bub -w /boxsh gateway"
+exec boxsh $BOXSH_ARGS -c "cd /app && uv run bub -w /workspace gateway"

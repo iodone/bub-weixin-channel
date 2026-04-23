@@ -3,8 +3,8 @@ services:
     build: .
     env_file: .env
     volumes:
-      - ${BUB_WORKSPACE}:/workspace
-      - ${BUB_BOXSH}:/boxsh
+      - ${BUB_WORKSPACE}:/workspace-base
+      - ${BUB_BOXSH}:/workspace
       - ${BUB_SKILLS}:/root/.agents/skills
       - ${BUB_WEIXIN_DATA}:/root/.openclaw/openclaw-weixin
       - ${BUB_HOME}:/root/.bub
