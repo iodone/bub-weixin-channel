@@ -116,7 +116,7 @@ docker-compose logs -f
 
 | 目录 | 权限 | 说明 |
 |------|------|------|
-| `/workspace` | 🐄 COW | Agent 工作空间（fuse-overlayfs merged view，写入落到 $BUB_BOXSH） |
+| `/boxsh` | 🐄 COW | Agent 工作空间（boxsh COW merged view，基座来自 $BUB_WORKSPACE） |
 | `/root/.agents/skills` | 🔒 只读 | Bub 技能目录 |
 | `/root/.openclaw/openclaw-weixin` | 🔒 只读 | 微信登录凭据 |
 | `/root/.bub` | ✏️ 可写 | Bub 运行数据（tapes、配置） |
