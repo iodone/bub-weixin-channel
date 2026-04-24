@@ -109,16 +109,26 @@ SANDBOX_INIT="export HOME=$BUB_HOME \
 # Shell to use inside sandbox (default: sh; override with BOXSH_SHELL=fish etc.)
 BOXSH_SHELL="${BOXSH_SHELL:-sh}"
 
+# Run boxsh as supervised child with signal forwarding for clean Ctrl+C
+run_supervised() {
+    boxsh $BOXSH_ARGS -c "$1" &
+    child=$!
+    trap 'kill -INT "$child" 2>/dev/null; sleep 0.2; kill -TERM "$child" 2>/dev/null || true' INT
+    trap 'kill -TERM "$child" 2>/dev/null || true' TERM HUP
+    wait "$child" 2>/dev/null
+    exit $?
+}
+
 # If no arguments, start the gateway
 if [ $# -eq 0 ]; then
-    exec boxsh $BOXSH_ARGS -c "$SANDBOX_INIT && cd $SCRIPT_DIR && exec uv run bub -w $BUB_BOXSH_HOST gateway"
+    run_supervised "$SANDBOX_INIT && cd $SCRIPT_DIR && exec uv run bub -w $BUB_BOXSH_HOST gateway"
 fi
 
-# If first argument is "shell" or "sh", start interactive shell
+# If first argument is "shell" or "sh", start interactive shell (no supervisor)
 if [ "$1" = "shell" ] || [ "$1" = "sh" ]; then
     shift
     exec boxsh $BOXSH_ARGS -c "$SANDBOX_INIT && exec $BOXSH_SHELL $*"
 fi
 
 # Otherwise, run the given command in the sandbox
-exec boxsh $BOXSH_ARGS -c "$SANDBOX_INIT && exec $*"
+run_supervised "$SANDBOX_INIT && exec $*"
