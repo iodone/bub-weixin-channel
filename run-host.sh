@@ -7,27 +7,40 @@
 #   run-host.sh <command>    - Run command in boxsh sandbox
 #
 # Requires:
-#   - boxsh installed (https://github.com/xicilion/boxsh)
-#   - uv installed (https://github.com/astral-sh/uv)
+#   - boxsh >= 2.0.0 (https://github.com/xicilion/boxsh)
+#   - uv (https://github.com/astral-sh/uv)
 #   - .env file with required configuration
 #
 # Environment variables (loaded from .env):
-#   BUB_WORKSPACE   - Agent workspace base directory (read-only lower layer)
-#   BUB_BOXSH       - COW upper layer directory (persists agent writes)
-#   BUB_SKILLS      - Skills directory (read-only)
+#   BUB_WORKSPACE   - Workspace base directory (COW lower layer, read-only)
+#   BUB_BOXSH       - COW upper layer (persists agent writes, also runtime workspace)
+#   BUB_SKILLS      - Skills directory (read-only in sandbox)
 #   BUB_WEIXIN_DATA - WeChat credentials directory (read-only, optional)
 #   BUB_HOME        - Bub home directory for tapes/config (read-write)
 #
-# Directory layout inside the sandbox:
-#   /workspace   (cow) agent workspace (COW merged view)
-#   /skills      (ro)  bub skills
-#   /bub-home    (rw)  bub home (tapes, config)
-#   Project dir  (ro)  application code
+# COW path mapping (Host mode vs Docker mode):
+#
+#   Role                  Docker mode          Host mode
+#   ----                  -----------          ---------
+#   Lower (read-only)     /workspace-base      $BUB_WORKSPACE
+#   Upper (writes)        /workspace           $BUB_BOXSH
+#   Sandbox mount point   /workspace           $BUB_BOXSH
+#   bub -w flag           /workspace           $BUB_BOXSH
+#
+#   boxsh cow:SRC:DST mounts an overlayfs at DST with SRC as read-only base.
+#   Writes go to DST. In Host mode, DST = $BUB_BOXSH = runtime workspace.
+#   App code uses framework.workspace (from -w flag), never hardcodes paths.
 
 set -e
 
 # Resolve project root (directory containing this script)
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# Check boxsh is available
+if ! command -v boxsh >/dev/null 2>&1; then
+    echo "Error: boxsh not found. Install from https://github.com/xicilion/boxsh" >&2
+    exit 1
+fi
 
 # Load .env file
 if [ -f "$SCRIPT_DIR/.env" ]; then
