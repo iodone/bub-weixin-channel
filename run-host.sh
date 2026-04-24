@@ -107,7 +107,7 @@ BOXSH_SHELL="${BOXSH_SHELL:-sh}"
 
 # If no arguments, start the gateway
 if [ $# -eq 0 ]; then
-    exec boxsh $BOXSH_ARGS -c "$SANDBOX_INIT && cd $SCRIPT_DIR && uv run bub -w $BUB_BOXSH_HOST gateway"
+    exec boxsh $BOXSH_ARGS -c "$SANDBOX_INIT && cd $SCRIPT_DIR && exec uv run bub -w $BUB_BOXSH_HOST gateway"
 fi
 
 # If first argument is "shell" or "sh", start interactive shell
@@ -117,4 +117,4 @@ if [ "$1" = "shell" ] || [ "$1" = "sh" ]; then
 fi
 
 # Otherwise, run the given command in the sandbox
-exec boxsh $BOXSH_ARGS -c "$SANDBOX_INIT && $*"
+exec boxsh $BOXSH_ARGS -c "$SANDBOX_INIT && exec $*"
