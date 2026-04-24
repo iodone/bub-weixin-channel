@@ -113,8 +113,11 @@ def _get_profile_store(context: ToolContext) -> ProfileStore:
     store = context.state.get("_profile_store")
     if store is not None:
         return store
-    # Fallback: create a store if not injected (e.g., comma-command without channel)
-    workspace = context.state.get("_runtime_workspace") or os.getcwd()
+    # Fallback: require _runtime_workspace; never use os.getcwd() which may
+    # resolve to an unrelated directory (e.g. ~/.bub) inside the sandbox.
+    workspace = context.state.get("_runtime_workspace")
+    if not workspace:
+        raise RuntimeError("profile tools require _profile_store or _runtime_workspace in context")
     store = ProfileStore(Path(workspace) / "profiles")
     store.load()
     return store
@@ -240,6 +243,37 @@ async def user_update(params: UserUpdateInput, *, context: ToolContext) -> str:
         return "更新失败"
 
     return f"已更新 {updated.name} 的 {params.field}"
+
+
+class UserCreateInput(BaseModel):
+    """Input for user.create tool."""
+
+    name: str = Field(..., description="用户显示名")
+    platform: str = Field("feishu", description="IM 平台，如 'feishu'")
+    id_field: str = Field("open_id", description="ID 字段名，如 'open_id'")
+    id_value: str = Field(..., description="ID 值，如 'ou_xxx'")
+    department: str = Field("", description="部门")
+    title: str = Field("", description="职位")
+
+
+@tool(name="user.create", model=UserCreateInput, context=True)
+async def user_create(params: UserCreateInput, *, context: ToolContext) -> str:
+    """创建新用户 profile。
+
+    当需要手动创建一个新的用户 profile 时使用此工具。
+    如果用户已存在（相同 platform + id_field + id_value），会更新已有 profile。
+    """
+    store = _get_profile_store(context)
+
+    profile = store.upsert(
+        platform=params.platform,
+        id_field=params.id_field,
+        id_value=params.id_value,
+        name=params.name,
+        department=params.department,
+        title=params.title,
+    )
+    return f"已创建/更新 profile: {profile.name} (id: {profile.id})"
 
 
 def _format_profile(profile) -> str:

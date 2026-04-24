@@ -11,9 +11,17 @@ if TYPE_CHECKING:
 def build_user_context_hint(profile: UserProfile | None) -> str:
     """Build a prompt hint with sender profile context and tool usage guidance."""
     tool_hints = (
-        "当消息中提及其他用户（如 @某某）时，使用 user.lookup 工具查询该用户的 profile。\n"
-        "当你观察到用户的行为特征、兴趣爱好等信息时，使用 user.update 工具记录到对应 profile。\n"
-        "当需要查找某人或搜索特定用户时，使用 user.search 工具。"
+        "当需要处理用户 profile 时，必须使用以下内置工具：\n"
+        "- 创建新 profile：使用 user.create（如果用户已存在会自动更新）\n"
+        "- 查询 profile：使用 user.lookup（按名字或 IM ID）或 user.search（按关键词搜索）\n"
+        "- 更新已有 profile 的字段：使用 user.update\n"
+        "- 当消息中提及其他用户（如 @某某）时，使用 user.lookup 查询该用户的 profile\n"
+        "- 当观察到用户的行为特征、兴趣爱好等信息时，使用 user.update 记录到对应 profile\n\n"
+        "严禁事项：\n"
+        "- 严禁使用 bash、python 或直接编辑文件的方式操作 profiles 目录下的文件\n"
+        "- 严禁手工构造 ProfileStore 或调用其内部方法\n"
+        "- 严禁向终端用户输出 ProfileStore、upsert、工具封装等内部实现细节；"
+        "如果操作失败，只返回简短的面向用户的错误信息"
     )
 
     if profile is None:
