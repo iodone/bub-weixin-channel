@@ -67,7 +67,8 @@ BUB_HOME="$(expand_path "${BUB_HOME:-$HOME/.bub}")"
 # Ensure required directories exist
 # NOTE: BUB_BOXSH_HOST must be empty (or non-existent) for boxsh cow:SRC:DST —
 # boxsh rmdir's DST before mounting overlay. Do NOT create files inside it here.
-mkdir -p "$BUB_WORKSPACE" "$BUB_BOXSH_HOST" "$BUB_HOME"
+mkdir -p "$BUB_WORKSPACE" "$BUB_BOXSH_HOST" "$BUB_HOME" \
+  "$BUB_HOME/.config" "$BUB_HOME/.local/share" "$BUB_HOME/.local/state" "$BUB_HOME/tmp"
 
 # Pre-create profiles in lower layer only (BUB_WORKSPACE).
 # Upper layer profiles is created inside the sandbox after boxsh mounts COW.
@@ -124,10 +125,19 @@ if [ $# -eq 0 ]; then
     run_supervised "$SANDBOX_INIT && cd $SCRIPT_DIR && exec uv run bub -w $BUB_BOXSH_HOST gateway"
 fi
 
-# If first argument is "shell" or "sh", start interactive shell (no supervisor)
+# If first argument is "shell" or "sh", start interactive shell directly
+# (no -c wrapper — let boxsh launch the shell with proper TTY)
 if [ "$1" = "shell" ] || [ "$1" = "sh" ]; then
     shift
-    exec boxsh $BOXSH_ARGS -c "$SANDBOX_INIT && exec $BOXSH_SHELL $*"
+    HOME="$BUB_HOME" \
+    XDG_CONFIG_HOME="$BUB_HOME/.config" \
+    XDG_DATA_HOME="$BUB_HOME/.local/share" \
+    XDG_STATE_HOME="$BUB_HOME/.local/state" \
+    TMPDIR="$BUB_HOME/tmp" TEMP="$BUB_HOME/tmp" TMP="$BUB_HOME/tmp" \
+    OPENCLAW_STATE_DIR="$BUB_WEIXIN_STATE_DIR" \
+    CLAWDBOT_STATE_DIR="$BUB_WEIXIN_STATE_DIR" \
+    PATH="$UV_BIN_DIR:$PATH" \
+    exec boxsh $BOXSH_ARGS "$@"
 fi
 
 # Otherwise, run the given command in the sandbox
