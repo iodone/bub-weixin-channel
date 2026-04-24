@@ -73,21 +73,31 @@ mkdir -p "$BUB_WORKSPACE" "$BUB_BOXSH_HOST" "$BUB_HOME"
 # Upper layer profiles is created inside the sandbox after boxsh mounts COW.
 mkdir -p "$BUB_WORKSPACE/profiles"
 
+# Resolve uv toolchain paths for sandbox bind
+UV_BIN_DIR="$(cd "$(dirname "$(command -v uv)")" && pwd)"
+UV_DATA_DIR="$(expand_path "${XDG_DATA_HOME:-$HOME/.local/share}/uv")"
+
 # Build boxsh arguments
 BOXSH_ARGS="--sandbox \
   --bind ro:$SCRIPT_DIR \
   --bind cow:$BUB_WORKSPACE:$BUB_BOXSH_HOST \
   --bind wr:$BUB_HOME"
 
+# uv binary and toolchain (Python installs, caches)
+[ -d "$UV_BIN_DIR" ] && BOXSH_ARGS="$BOXSH_ARGS --bind ro:$UV_BIN_DIR"
+[ -d "$UV_DATA_DIR" ] && BOXSH_ARGS="$BOXSH_ARGS --bind ro:$UV_DATA_DIR"
+
 # Optional read-only binds (only if directories exist)
 [ -d "$BUB_SKILLS" ] && BOXSH_ARGS="$BOXSH_ARGS --bind ro:$BUB_SKILLS"
 [ -d "$BUB_WEIXIN_DATA" ] && BOXSH_ARGS="$BOXSH_ARGS --bind ro:$BUB_WEIXIN_DATA"
 
-# Sandbox init: set HOME/XDG to writable BUB_HOME, create profiles in COW upper
+# Sandbox init: set HOME/XDG to writable BUB_HOME, ensure PATH includes uv,
+# create profiles in COW upper layer
 SANDBOX_INIT="export HOME=$BUB_HOME \
   XDG_CONFIG_HOME=$BUB_HOME/.config \
   XDG_DATA_HOME=$BUB_HOME/.local/share \
   XDG_STATE_HOME=$BUB_HOME/.local/state \
+  PATH=$UV_BIN_DIR:\$PATH \
   && mkdir -p \$HOME \$XDG_CONFIG_HOME \$XDG_DATA_HOME \$XDG_STATE_HOME \
   $BUB_BOXSH_HOST/profiles"
 
