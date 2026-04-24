@@ -94,7 +94,7 @@ uv run bub gateway
 
 ### 宿主机模式（推荐开发调试）
 
-直接在宿主机用 boxsh 沙箱运行，无需 Docker。要求 boxsh >= 2.0。
+直接在宿主机用 boxsh 沙箱运行，无需 Docker。要求 boxsh >= 2.1.0。
 
 ```bash
 # 1. 准备配置
@@ -130,15 +130,15 @@ docker-compose logs -f
 
 ### COW 路径映射
 
-两种模式使用相同的环境变量（`BUB_WORKSPACE`、`BUB_BOXSH`），COW 语义一致：
+两种模式使用独立的 upper 目录，避免 COW 产物互相干扰：
 
 | 角色 | Docker 模式 | 宿主机模式 |
 |------|-------------|------------|
 | Lower（只读基座） | `/workspace-base`（来自 `$BUB_WORKSPACE`） | `$BUB_WORKSPACE` |
-| Upper（持久化写入） | `/workspace`（来自 `$BUB_BOXSH`） | `$BUB_BOXSH` |
-| Runtime workspace | `/workspace` | `$BUB_BOXSH` |
+| Upper（持久化写入） | `/workspace`（来自 `$BUB_BOXSH`） | `$BUB_BOXSH_HOST` |
+| Runtime workspace | `/workspace` | `$BUB_BOXSH_HOST` |
 
-> App 代码通过 `bub -w` 参数动态获取 workspace 路径，不硬编码任何路径。两种模式下行为完全一致。
+> **重要：** Docker 模式使用 `BUB_BOXSH`，宿主机模式使用 `BUB_BOXSH_HOST`，两者不可混用。App 代码通过 `bub -w` 参数动态获取 workspace 路径，不硬编码任何路径。
 
 ### 沙箱保护
 
