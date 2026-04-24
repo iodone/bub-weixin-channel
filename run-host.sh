@@ -97,9 +97,10 @@ SANDBOX_INIT="export HOME=$BUB_HOME \
   XDG_CONFIG_HOME=$BUB_HOME/.config \
   XDG_DATA_HOME=$BUB_HOME/.local/share \
   XDG_STATE_HOME=$BUB_HOME/.local/state \
+  TMPDIR=$BUB_HOME/tmp TEMP=$BUB_HOME/tmp TMP=$BUB_HOME/tmp \
   PATH=$UV_BIN_DIR:\$PATH \
   && mkdir -p \$HOME \$XDG_CONFIG_HOME \$XDG_DATA_HOME \$XDG_STATE_HOME \
-  $BUB_BOXSH_HOST/profiles"
+  \$TMPDIR $BUB_BOXSH_HOST/profiles"
 
 # Shell to use inside sandbox (default: sh; override with BOXSH_SHELL=fish etc.)
 BOXSH_SHELL="${BOXSH_SHELL:-sh}"
