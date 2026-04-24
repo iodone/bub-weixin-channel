@@ -39,19 +39,9 @@ set -e
 # Resolve project root (directory containing this script)
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-# Check boxsh is available and version >= 2.1.0
+# Check boxsh is available (tested with boxsh 2.1.0)
 if ! command -v boxsh >/dev/null 2>&1; then
     echo "Error: boxsh not found. Install from https://github.com/xicilion/boxsh" >&2
-    exit 1
-fi
-
-BOXSH_VER="$(boxsh --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || echo "0.0.0")"
-BOXSH_MAJOR="$(echo "$BOXSH_VER" | cut -d. -f1)"
-BOXSH_MINOR="$(echo "$BOXSH_VER" | cut -d. -f2)"
-if [ "$BOXSH_MAJOR" -lt 2 ] || { [ "$BOXSH_MAJOR" -eq 2 ] && [ "$BOXSH_MINOR" -lt 1 ]; }; then
-    echo "Error: boxsh >= 2.1.0 required (found $BOXSH_VER)." >&2
-    echo "  Host mode requires boxsh 2.1.0+ for non-empty COW DST support." >&2
-    echo "  Upgrade: https://github.com/xicilion/boxsh/releases" >&2
     exit 1
 fi
 
