@@ -88,11 +88,27 @@ uv run bub gateway
 
 </details>
 
-## Docker 部署
+## 沙箱部署
 
-容器内通过 [boxsh](https://github.com/xicilion/boxsh) 沙箱运行，Agent 对工作空间的写入通过 COW（写时复制）隔离到独立目录，原始工作空间不受影响。
+通过 [boxsh](https://github.com/xicilion/boxsh) 沙箱运行，Agent 对工作空间的写入通过 COW（写时复制）隔离到独立目录，原始工作空间不受影响。支持两种部署模式：
 
-### 快速开始
+### 宿主机模式（推荐开发调试）
+
+直接在宿主机用 boxsh 沙箱运行，无需 Docker。要求 boxsh >= 2.0。
+
+```bash
+# 1. 准备配置
+cp .env.example .env
+# 编辑 .env，填入必要配置
+
+# 2. 启动
+./run-host.sh
+
+# 3. 进入沙箱调试
+./run-host.sh shell
+```
+
+### Docker 模式（推荐生产部署）
 
 ```bash
 # 1. 准备配置
@@ -112,25 +128,37 @@ docker-compose up -d
 docker-compose logs -f
 ```
 
+### COW 路径映射
+
+两种模式使用相同的环境变量（`BUB_WORKSPACE`、`BUB_BOXSH`），COW 语义一致：
+
+| 角色 | Docker 模式 | 宿主机模式 |
+|------|-------------|------------|
+| Lower（只读基座） | `/workspace-base`（来自 `$BUB_WORKSPACE`） | `$BUB_WORKSPACE` |
+| Upper（持久化写入） | `/workspace`（来自 `$BUB_BOXSH`） | `$BUB_BOXSH` |
+| Runtime workspace | `/workspace` | `$BUB_BOXSH` |
+
+> App 代码通过 `bub -w` 参数动态获取 workspace 路径，不硬编码任何路径。两种模式下行为完全一致。
+
 ### 沙箱保护
 
 | 目录 | 权限 | 说明 |
 |------|------|------|
-| `/workspace` | 🐄 COW | Agent 工作空间（boxsh COW merged view，基座来自 $BUB_WORKSPACE） |
-| `/root/.agents/skills` | 🔒 只读 | Bub 技能目录 |
-| `/root/.openclaw/openclaw-weixin` | 🔒 只读 | 微信登录凭据 |
-| `/root/.bub` | ✏️ 可写 | Bub 运行数据（tapes、配置） |
+| workspace | COW | Agent 工作空间（COW merged view，基座来自 `$BUB_WORKSPACE`） |
+| skills | 只读 | Bub 技能目录 |
+| weixin data | 只读 | 微信登录凭据 |
+| bub home | 可写 | Bub 运行数据（tapes、配置） |
 
-### 调试
+### Docker 调试
 
 ```bash
-# 启动与 bub 同配置的 boxsh 调试实例（/workspace 可读写）
+# 启动与 bub 同配置的 boxsh 调试实例
 docker-compose run --rm bub /entrypoint.sh shell
 
-# 查看当前运行态（继承服务视图，/workspace 受限）
+# 查看当前运行态
 docker-compose exec bub /entrypoint.sh shell
 
-# 进入原始镜像环境（绕过 boxsh，排查镜像内容）
+# 进入原始镜像环境（绕过 boxsh）
 docker-compose run --rm --entrypoint sh bub
 ```
 
