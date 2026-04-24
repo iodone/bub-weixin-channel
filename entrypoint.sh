@@ -30,6 +30,12 @@ BOXSH_ARGS="--sandbox \
   --bind ro:/root/.openclaw/openclaw-weixin \
   --bind wr:/root/.bub"
 
+# Ensure profiles directory exists in BOTH lower (workspace-base) and upper
+# (workspace / BUB_BOXSH) layers before boxsh creates the COW overlay.
+# fuse-overlayfs raises EXDEV on file creation in lower-only directories.
+[ -d /workspace-base ] && mkdir -p /workspace-base/profiles
+[ -d /workspace ] && mkdir -p /workspace/profiles
+
 # 如果没有参数，启动服务
 if [ $# -eq 0 ]; then
   exec boxsh $BOXSH_ARGS -c "cd /app && uv run bub -w /workspace gateway"

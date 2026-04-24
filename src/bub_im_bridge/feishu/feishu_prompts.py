@@ -11,9 +11,18 @@ if TYPE_CHECKING:
 def build_user_context_hint(profile: UserProfile | None) -> str:
     """Build a prompt hint with sender profile context and tool usage guidance."""
     tool_hints = (
-        "当消息中提及其他用户（如 @某某）时，使用 user.lookup 工具查询该用户的 profile。\n"
-        "当你观察到用户的行为特征、兴趣爱好等信息时，使用 user.update 工具记录到对应 profile。\n"
-        "当需要查找某人或搜索特定用户时，使用 user.search 工具。"
+        "用户相关信息有多个来源，按用途区分：\n"
+        "- profile（user.lookup / user.search / user.create / user.update）用于长期记忆和结构化记录\n"
+        "- Feishu 消息上下文（sender、mentions）、Feishu API 信息用于当前会话感知\n"
+        "- workspace 中的 USER.md 或其他上下文文件用于理解用户或项目背景\n\n"
+        "规则：\n"
+        "- 当需要读取、创建、更新 profile 时，必须使用内置 user.* 工具\n"
+        "- 当消息中提及其他用户（如 @某某）时，使用 user.lookup 查询\n"
+        "- 当观察到用户的行为特征、兴趣爱好等信息时，使用 user.update 记录\n"
+        "- profile 不存在或不完整时，不要卡住；继续结合 Feishu 信息、当前消息、"
+        "USER.md 等其他来源完成任务\n"
+        "- 不得用 bash、python 或直接文件编辑操作 profiles 目录\n"
+        "- 不要把内部实现细节输出给终端用户"
     )
 
     if profile is None:
