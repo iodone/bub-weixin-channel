@@ -65,11 +65,13 @@ BUB_WEIXIN_DATA="$(expand_path "${BUB_WEIXIN_DATA:-$HOME/.openclaw/openclaw-weix
 BUB_HOME="$(expand_path "${BUB_HOME:-$HOME/.bub}")"
 
 # Ensure required directories exist
+# NOTE: BUB_BOXSH_HOST must be empty (or non-existent) for boxsh cow:SRC:DST —
+# boxsh rmdir's DST before mounting overlay. Do NOT create files inside it here.
 mkdir -p "$BUB_WORKSPACE" "$BUB_BOXSH_HOST" "$BUB_HOME"
 
-# Pre-create profiles directory in both COW layers (avoids EXDEV)
+# Pre-create profiles in lower layer only (BUB_WORKSPACE).
+# Upper layer profiles is created inside the sandbox after boxsh mounts COW.
 mkdir -p "$BUB_WORKSPACE/profiles"
-mkdir -p "$BUB_BOXSH_HOST/profiles"
 
 # Build boxsh arguments
 BOXSH_ARGS="--sandbox \
@@ -81,16 +83,19 @@ BOXSH_ARGS="--sandbox \
 [ -d "$BUB_SKILLS" ] && BOXSH_ARGS="$BOXSH_ARGS --bind ro:$BUB_SKILLS"
 [ -d "$BUB_WEIXIN_DATA" ] && BOXSH_ARGS="$BOXSH_ARGS --bind ro:$BUB_WEIXIN_DATA"
 
+# Helper: create profiles dir inside sandbox (avoids EXDEV in COW upper layer)
+SANDBOX_INIT="mkdir -p $BUB_BOXSH_HOST/profiles"
+
 # If no arguments, start the gateway
 if [ $# -eq 0 ]; then
-    exec boxsh $BOXSH_ARGS -c "cd $SCRIPT_DIR && uv run bub -w $BUB_BOXSH_HOST gateway"
+    exec boxsh $BOXSH_ARGS -c "$SANDBOX_INIT && cd $SCRIPT_DIR && uv run bub -w $BUB_BOXSH_HOST gateway"
 fi
 
 # If first argument is "shell" or "sh", start interactive shell
 if [ "$1" = "shell" ] || [ "$1" = "sh" ]; then
     shift
-    exec boxsh $BOXSH_ARGS "$@"
+    exec boxsh $BOXSH_ARGS -c "$SANDBOX_INIT && exec \$SHELL $*"
 fi
 
 # Otherwise, run the given command in the sandbox
-exec boxsh $BOXSH_ARGS -c "$*"
+exec boxsh $BOXSH_ARGS -c "$SANDBOX_INIT && $*"
