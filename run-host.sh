@@ -125,19 +125,19 @@ if [ $# -eq 0 ]; then
     run_supervised "$SANDBOX_INIT && cd $SCRIPT_DIR && exec uv run bub -w $BUB_BOXSH_HOST gateway"
 fi
 
-# If first argument is "shell" or "sh", start interactive shell directly
-# (no -c wrapper — let boxsh launch the shell with proper TTY)
+# If first argument is "shell" or "sh", launch boxsh native interactive shell
 if [ "$1" = "shell" ] || [ "$1" = "sh" ]; then
     shift
-    HOME="$BUB_HOME" \
-    XDG_CONFIG_HOME="$BUB_HOME/.config" \
-    XDG_DATA_HOME="$BUB_HOME/.local/share" \
-    XDG_STATE_HOME="$BUB_HOME/.local/state" \
-    TMPDIR="$BUB_HOME/tmp" TEMP="$BUB_HOME/tmp" TMP="$BUB_HOME/tmp" \
-    OPENCLAW_STATE_DIR="$BUB_WEIXIN_STATE_DIR" \
-    CLAWDBOT_STATE_DIR="$BUB_WEIXIN_STATE_DIR" \
-    PATH="$UV_BIN_DIR:$PATH" \
-    exec boxsh $BOXSH_ARGS "$@"
+    exec env \
+      HOME="$BUB_HOME" \
+      XDG_CONFIG_HOME="$BUB_HOME/.config" \
+      XDG_DATA_HOME="$BUB_HOME/.local/share" \
+      XDG_STATE_HOME="$BUB_HOME/.local/state" \
+      TMPDIR="$BUB_HOME/tmp" TEMP="$BUB_HOME/tmp" TMP="$BUB_HOME/tmp" \
+      OPENCLAW_STATE_DIR="$BUB_WEIXIN_STATE_DIR" \
+      CLAWDBOT_STATE_DIR="$BUB_WEIXIN_STATE_DIR" \
+      PATH="$UV_BIN_DIR:$PATH" \
+      boxsh $BOXSH_ARGS
 fi
 
 # Otherwise, run the given command in the sandbox
