@@ -89,7 +89,9 @@ BOXSH_ARGS="--sandbox \
 
 # Optional read-only binds (only if directories exist)
 [ -d "$BUB_SKILLS" ] && BOXSH_ARGS="$BOXSH_ARGS --bind ro:$BUB_SKILLS"
-[ -d "$BUB_WEIXIN_DATA" ] && BOXSH_ARGS="$BOXSH_ARGS --bind ro:$BUB_WEIXIN_DATA"
+# Bind parent dir (~/.openclaw) so weixin-agent can resolve its state path
+BUB_WEIXIN_STATE_DIR="$(dirname "$BUB_WEIXIN_DATA")"
+[ -d "$BUB_WEIXIN_STATE_DIR" ] && BOXSH_ARGS="$BOXSH_ARGS --bind ro:$BUB_WEIXIN_STATE_DIR"
 
 # Sandbox init: set HOME/XDG to writable BUB_HOME, ensure PATH includes uv,
 # create profiles in COW upper layer
@@ -98,6 +100,8 @@ SANDBOX_INIT="export HOME=$BUB_HOME \
   XDG_DATA_HOME=$BUB_HOME/.local/share \
   XDG_STATE_HOME=$BUB_HOME/.local/state \
   TMPDIR=$BUB_HOME/tmp TEMP=$BUB_HOME/tmp TMP=$BUB_HOME/tmp \
+  OPENCLAW_STATE_DIR=$BUB_WEIXIN_STATE_DIR \
+  CLAWDBOT_STATE_DIR=$BUB_WEIXIN_STATE_DIR \
   PATH=$UV_BIN_DIR:\$PATH \
   && mkdir -p \$HOME \$XDG_CONFIG_HOME \$XDG_DATA_HOME \$XDG_STATE_HOME \
   \$TMPDIR $BUB_BOXSH_HOST/profiles"
