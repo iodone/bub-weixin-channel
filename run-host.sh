@@ -83,8 +83,16 @@ BOXSH_ARGS="--sandbox \
 [ -d "$BUB_SKILLS" ] && BOXSH_ARGS="$BOXSH_ARGS --bind ro:$BUB_SKILLS"
 [ -d "$BUB_WEIXIN_DATA" ] && BOXSH_ARGS="$BOXSH_ARGS --bind ro:$BUB_WEIXIN_DATA"
 
-# Helper: create profiles dir inside sandbox (avoids EXDEV in COW upper layer)
-SANDBOX_INIT="mkdir -p $BUB_BOXSH_HOST/profiles"
+# Sandbox init: set HOME/XDG to writable BUB_HOME, create profiles in COW upper
+SANDBOX_INIT="export HOME=$BUB_HOME \
+  XDG_CONFIG_HOME=$BUB_HOME/.config \
+  XDG_DATA_HOME=$BUB_HOME/.local/share \
+  XDG_STATE_HOME=$BUB_HOME/.local/state \
+  && mkdir -p \$HOME \$XDG_CONFIG_HOME \$XDG_DATA_HOME \$XDG_STATE_HOME \
+  $BUB_BOXSH_HOST/profiles"
+
+# Shell to use inside sandbox (default: sh; override with BOXSH_SHELL=fish etc.)
+BOXSH_SHELL="${BOXSH_SHELL:-sh}"
 
 # If no arguments, start the gateway
 if [ $# -eq 0 ]; then
@@ -94,7 +102,7 @@ fi
 # If first argument is "shell" or "sh", start interactive shell
 if [ "$1" = "shell" ] || [ "$1" = "sh" ]; then
     shift
-    exec boxsh $BOXSH_ARGS -c "$SANDBOX_INIT && exec \$SHELL $*"
+    exec boxsh $BOXSH_ARGS -c "$SANDBOX_INIT && exec $BOXSH_SHELL $*"
 fi
 
 # Otherwise, run the given command in the sandbox
