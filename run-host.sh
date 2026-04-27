@@ -110,14 +110,33 @@ SANDBOX_INIT="export HOME=$BUB_HOME \
 # Shell to use inside sandbox (default: sh; override with BOXSH_SHELL=fish etc.)
 BOXSH_SHELL="${BOXSH_SHELL:-sh}"
 
-# Run boxsh as supervised child with signal forwarding for clean Ctrl+C
+# Run boxsh with signal forwarding for clean Ctrl+C.
+# boxsh/uv create their own process groups, so we walk the process tree
+# to kill all descendants.  set +e around wait prevents set -e from
+# killing the shell before the trap handler fires.
 run_supervised() {
     boxsh $BOXSH_ARGS -c "$1" &
     child=$!
-    trap 'kill -INT "$child" 2>/dev/null; sleep 0.2; kill -TERM "$child" 2>/dev/null || true' INT
-    trap 'kill -TERM "$child" 2>/dev/null || true' TERM HUP
-    wait "$child" 2>/dev/null
-    exit $?
+
+    kill_tree() {
+        for cpid in $(pgrep -P "$1" 2>/dev/null); do
+            kill_tree "$cpid" "$2"
+        done
+        kill "-$2" "$1" 2>/dev/null || true
+    }
+
+    cleanup() {
+        kill_tree "$child" TERM
+        sleep 0.3
+        kill_tree "$child" KILL 2>/dev/null || true
+    }
+
+    trap cleanup INT TERM HUP
+    set +e
+    wait "$child"
+    set -e
+    cleanup
+    exit 0
 }
 
 # If no arguments, start the gateway
