@@ -91,7 +91,19 @@ BOXSH_ARGS="--sandbox \
 [ -d "$UV_DATA_DIR" ] && BOXSH_ARGS="$BOXSH_ARGS --bind ro:$UV_DATA_DIR"
 
 # Optional read-only binds (only if directories exist)
-[ -d "$BUB_SKILLS" ] && BOXSH_ARGS="$BOXSH_ARGS --bind ro:$BUB_SKILLS"
+# Skills directory: bind at original path, then symlink from $BUB_HOME/.agents/skills
+# so bub (which follows $HOME) can find it. Same pattern as feishu below.
+if [ -d "$BUB_SKILLS" ]; then
+    BOXSH_ARGS="$BOXSH_ARGS --bind ro:$BUB_SKILLS"
+    SKILLS_LINK="$BUB_HOME/.agents/skills"
+    mkdir -p "$(dirname "$SKILLS_LINK")"
+    if [ ! -e "$SKILLS_LINK" ]; then
+        ln -s "$BUB_SKILLS" "$SKILLS_LINK"
+    elif [ ! -L "$SKILLS_LINK" ] || [ "$(readlink "$SKILLS_LINK")" != "$BUB_SKILLS" ]; then
+        echo "Error: $SKILLS_LINK exists but does not point to $BUB_SKILLS" >&2
+        exit 1
+    fi
+fi
 # Weixin parent dir (ro for path resolution) and data dir (wr for sync state)
 BUB_WEIXIN_STATE_DIR="$(dirname "$BUB_WEIXIN_DATA")"
 [ -d "$BUB_WEIXIN_STATE_DIR" ] && BOXSH_ARGS="$BOXSH_ARGS --bind ro:$BUB_WEIXIN_STATE_DIR"
