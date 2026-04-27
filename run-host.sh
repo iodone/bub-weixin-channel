@@ -164,4 +164,4 @@ if [ "$1" = "shell" ] || [ "$1" = "sh" ]; then
 fi
 
 # Otherwise, run the given command in the sandbox
-run_supervised "$SANDBOX_INIT && exec $*"
+run_supervised "$SANDBOX_INIT && exec sh -c \"$*\""
