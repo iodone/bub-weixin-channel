@@ -1,6 +1,6 @@
 [project]
 name = "bub-im-bridge"
-version = "0.3.0"
+version = "0.4.0"
 description = "WeChat and Feishu channel plugins for Bub framework"
 readme = "README.md"
 requires-python = ">=3.12"
