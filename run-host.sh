@@ -92,9 +92,10 @@ BOXSH_ARGS="--sandbox \
 
 # Optional read-only binds (only if directories exist)
 [ -d "$BUB_SKILLS" ] && BOXSH_ARGS="$BOXSH_ARGS --bind ro:$BUB_SKILLS"
-# Bind parent dir (~/.openclaw) so weixin-agent can resolve its state path
+# Weixin parent dir (ro for path resolution) and data dir (wr for sync state)
 BUB_WEIXIN_STATE_DIR="$(dirname "$BUB_WEIXIN_DATA")"
-[ -d "$BUB_WEIXIN_STATE_DIR" ] && BOXSH_ARGS="$BOXSH_ARGS --bind wr:$BUB_WEIXIN_STATE_DIR"
+[ -d "$BUB_WEIXIN_STATE_DIR" ] && BOXSH_ARGS="$BOXSH_ARGS --bind ro:$BUB_WEIXIN_STATE_DIR"
+[ -d "$BUB_WEIXIN_DATA" ] && BOXSH_ARGS="$BOXSH_ARGS --bind wr:$BUB_WEIXIN_DATA"
 # Feishu CLI auth directory (writable for token refresh)
 # Bind at original path, then symlink from $BUB_HOME/.feishu so the CLI
 # (which follows $HOME) can find it. boxsh wr binds don't support SRC:DST.
