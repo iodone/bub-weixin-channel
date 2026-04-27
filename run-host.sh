@@ -81,6 +81,12 @@ make_home_link() {
     local real_path="$1" link_path="$2"
     if [ -d "$real_path" ]; then
         mkdir -p "$(dirname "$link_path")"
+        if [ -d "$link_path" ] && [ ! -L "$link_path" ]; then
+            # Plain directory left from a previous run — back it up and replace with symlink
+            local backup="${link_path}.bak.$(date +%s)"
+            echo "Migrating $link_path to symlink (backup at $backup)"
+            mv "$link_path" "$backup"
+        fi
         if [ ! -e "$link_path" ]; then
             ln -s "$real_path" "$link_path"
         elif [ ! -L "$link_path" ] || [ "$(readlink "$link_path")" != "$real_path" ]; then
