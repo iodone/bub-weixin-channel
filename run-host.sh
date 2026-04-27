@@ -113,6 +113,7 @@ BUB_WEIXIN_STATE_DIR="$(dirname "$BUB_WEIXIN_DATA")"
 [ -d "$HOME/.config" ] && BOXSH_ARGS="$BOXSH_ARGS --bind wr:$HOME/.config"
 [ -d "$HOME/.cache" ] && BOXSH_ARGS="$BOXSH_ARGS --bind wr:$HOME/.cache"
 [ -d "$HOME/.kyuubi" ] && BOXSH_ARGS="$BOXSH_ARGS --bind wr:$HOME/.kyuubi"
+[ -d "$HOME/.opencli" ] && BOXSH_ARGS="$BOXSH_ARGS --bind wr:$HOME/.opencli"
 
 # Sandbox init: HOME is the real user home, TMPDIR in BUB_HOME for isolation
 SANDBOX_INIT="export HOME=$HOME \
