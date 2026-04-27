@@ -127,9 +127,13 @@ SANDBOX_INIT="export HOME=$BUB_HOME \
 BOXSH_SHELL="${BOXSH_SHELL:-sh}"
 
 # Run boxsh with signal forwarding for clean Ctrl+C.
-# boxsh/uv create their own process groups, so we walk the process tree
-# to kill all descendants.  set +e around wait prevents set -e from
-# killing the shell before the trap handler fires.
+#
+# IMPORTANT: The command passed to boxsh must NOT use `exec`.  Keeping the
+# inner shell alive (as a wrapper around the real command) ensures that
+# all descendants remain findable via `pgrep -P` even after intermediate
+# processes exit.  If `exec` is used, an intermediate process (e.g. uv)
+# can exit and its children get reparented to PID 1, making them invisible
+# to the tree walk.
 run_supervised() {
     boxsh $BOXSH_ARGS -c "$1" &
     child=$!
@@ -157,7 +161,7 @@ run_supervised() {
 
 # If no arguments, start the gateway
 if [ $# -eq 0 ]; then
-    run_supervised "$SANDBOX_INIT && cd $SCRIPT_DIR && exec uv run bub -w $BUB_BOXSH_HOST gateway"
+    run_supervised "$SANDBOX_INIT && cd $SCRIPT_DIR && uv run bub -w $BUB_BOXSH_HOST gateway"
 fi
 
 # If first argument is "shell" or "sh", launch boxsh native interactive shell
@@ -176,4 +180,4 @@ if [ "$1" = "shell" ] || [ "$1" = "sh" ]; then
 fi
 
 # Otherwise, run the given command in the sandbox
-run_supervised "$SANDBOX_INIT && exec sh -c \"$*\""
+run_supervised "$SANDBOX_INIT && sh -c \"$*\""
