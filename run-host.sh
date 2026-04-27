@@ -65,12 +65,32 @@ BUB_SKILLS="$(expand_path "${BUB_SKILLS:-$HOME/.agents/skills}")"
 BUB_WEIXIN_DATA="$(expand_path "${BUB_WEIXIN_DATA:-$HOME/.openclaw/openclaw-weixin}")"
 BUB_FEISHU_HOME="$(expand_path "${BUB_FEISHU_HOME:-$HOME/.feishu}")"
 BUB_HOME="$(expand_path "${BUB_HOME:-$HOME/.bub}")"
+BUB_REAL_CONFIG="$(expand_path "${BUB_REAL_CONFIG:-$HOME/.config}")"
+BUB_KYUUBI_HOME="$(expand_path "${BUB_KYUUBI_HOME:-$HOME/.kyuubi}")"
 
 # Ensure required directories exist
 # NOTE: BUB_BOXSH_HOST must be empty (or non-existent) for boxsh cow:SRC:DST —
 # boxsh rmdir's DST before mounting overlay. Do NOT create files inside it here.
 mkdir -p "$BUB_WORKSPACE" "$BUB_BOXSH_HOST" "$BUB_HOME" \
-  "$BUB_HOME/.config" "$BUB_HOME/.local/share" "$BUB_HOME/.local/state" "$BUB_HOME/tmp"
+  "$BUB_HOME/.local/share" "$BUB_HOME/.local/state" "$BUB_HOME/tmp"
+
+# Symlink real host directories into $BUB_HOME so tools that resolve ~ find them.
+# Same pattern as skills and feishu: bind at original path, symlink from $BUB_HOME.
+# These must be created before mkdir -p would turn them into plain directories.
+make_home_link() {
+    local real_path="$1" link_path="$2"
+    if [ -d "$real_path" ]; then
+        mkdir -p "$(dirname "$link_path")"
+        if [ ! -e "$link_path" ]; then
+            ln -s "$real_path" "$link_path"
+        elif [ ! -L "$link_path" ] || [ "$(readlink "$link_path")" != "$real_path" ]; then
+            echo "Error: $link_path exists but does not point to $real_path" >&2
+            exit 1
+        fi
+    fi
+}
+make_home_link "$BUB_REAL_CONFIG" "$BUB_HOME/.config"
+make_home_link "$BUB_KYUUBI_HOME" "$BUB_HOME/.kyuubi"
 
 # Pre-create profiles in lower layer only (BUB_WORKSPACE).
 # Upper layer profiles is created inside the sandbox after boxsh mounts COW.
@@ -91,6 +111,9 @@ BOXSH_ARGS="--sandbox \
 [ -d "$UV_DATA_DIR" ] && BOXSH_ARGS="$BOXSH_ARGS --bind ro:$UV_DATA_DIR"
 
 # Optional read-only binds (only if directories exist)
+# Real host directories: bind at original path, symlink from $BUB_HOME (via make_home_link above).
+[ -d "$BUB_REAL_CONFIG" ] && BOXSH_ARGS="$BOXSH_ARGS --bind wr:$BUB_REAL_CONFIG"
+[ -d "$BUB_KYUUBI_HOME" ] && BOXSH_ARGS="$BOXSH_ARGS --bind wr:$BUB_KYUUBI_HOME"
 # Skills directory: bind at original path, then symlink from $BUB_HOME/.agents/skills
 # so bub (which follows $HOME) can find it. Same pattern as feishu below.
 if [ -d "$BUB_SKILLS" ]; then
