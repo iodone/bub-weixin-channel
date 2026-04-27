@@ -96,7 +96,10 @@ BOXSH_ARGS="--sandbox \
 BUB_WEIXIN_STATE_DIR="$(dirname "$BUB_WEIXIN_DATA")"
 [ -d "$BUB_WEIXIN_STATE_DIR" ] && BOXSH_ARGS="$BOXSH_ARGS --bind ro:$BUB_WEIXIN_STATE_DIR"
 # Feishu CLI auth directory (writable for token refresh)
-[ -d "$BUB_FEISHU_HOME" ] && BOXSH_ARGS="$BOXSH_ARGS --bind wr:$BUB_FEISHU_HOME:$BUB_HOME/.feishu"
+# Bind to REAL home (not BUB_HOME) because feishu CLI uses os.homedir()
+# which reads /etc/passwd, ignoring the sandboxed HOME env var.
+FEISHU_BIND_TARGET="$(expand_path "~")/.feishu"
+[ -d "$BUB_FEISHU_HOME" ] && BOXSH_ARGS="$BOXSH_ARGS --bind wr:$BUB_FEISHU_HOME:$FEISHU_BIND_TARGET"
 
 # Sandbox init: set HOME/XDG to writable BUB_HOME, ensure PATH includes uv,
 # create profiles in COW upper layer
