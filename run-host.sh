@@ -17,7 +17,6 @@
 #   BUB_SKILLS      - Skills directory (read-only in sandbox)
 #   BUB_WEIXIN_DATA - WeChat data directory (read-write, optional)
 #   BUB_FEISHU_HOME - Feishu CLI auth directory (read-write, optional, default ~/.feishu)
-#   BUB_HOME        - Bub home directory for tapes/config (read-write)
 #
 # COW path mapping (Host mode vs Docker mode):
 #
@@ -70,13 +69,14 @@ BUB_BOXSH_HOST="$(expand_path "${BUB_BOXSH_HOST:?BUB_BOXSH_HOST not set}")"
 BUB_SKILLS="$(expand_path "${BUB_SKILLS:-$HOME/.agents/skills}")"
 BUB_WEIXIN_DATA="$(expand_path "${BUB_WEIXIN_DATA:-$HOME/.openclaw/openclaw-weixin}")"
 BUB_FEISHU_HOME="$(expand_path "${BUB_FEISHU_HOME:-$HOME/.feishu}")"
-BUB_HOME="$(expand_path "${BUB_HOME:-$HOME/.bub}")"
+# BUB_HOME is always $HOME/.bub — bub resolves its state directory via ~.
+# Not configurable: changing it would require also changing bub's own path resolution.
+BUB_HOME="$HOME/.bub"
 
 # Ensure required directories exist
 # NOTE: BUB_BOXSH_HOST must be empty (or non-existent) for boxsh cow:SRC:DST —
 # boxsh rmdir's DST before mounting overlay. Do NOT create files inside it here.
-mkdir -p "$BUB_WORKSPACE" "$BUB_BOXSH_HOST" "$BUB_HOME" \
-  "$BUB_HOME/.local/share" "$BUB_HOME/.local/state" "$BUB_HOME/tmp"
+mkdir -p "$BUB_WORKSPACE" "$BUB_BOXSH_HOST" "$BUB_HOME" "$BUB_HOME/tmp"
 
 # Pre-create profiles in lower layer only (BUB_WORKSPACE).
 # Upper layer profiles is created inside the sandbox after boxsh mounts COW.
