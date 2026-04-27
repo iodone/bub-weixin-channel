@@ -15,7 +15,7 @@
 #   BUB_WORKSPACE   - Workspace base directory (COW lower layer, read-only)
 #   BUB_BOXSH_HOST  - Host mode COW upper layer + runtime workspace (MUST differ from BUB_BOXSH)
 #   BUB_SKILLS      - Skills directory (read-only in sandbox)
-#   BUB_WEIXIN_DATA - WeChat credentials directory (read-only, optional)
+#   BUB_WEIXIN_DATA - WeChat data directory (read-write, optional)
 #   BUB_FEISHU_HOME - Feishu CLI auth directory (read-write, optional, default ~/.feishu)
 #   BUB_HOME        - Bub home directory for tapes/config (read-write)
 #
@@ -94,7 +94,7 @@ BOXSH_ARGS="--sandbox \
 [ -d "$BUB_SKILLS" ] && BOXSH_ARGS="$BOXSH_ARGS --bind ro:$BUB_SKILLS"
 # Bind parent dir (~/.openclaw) so weixin-agent can resolve its state path
 BUB_WEIXIN_STATE_DIR="$(dirname "$BUB_WEIXIN_DATA")"
-[ -d "$BUB_WEIXIN_STATE_DIR" ] && BOXSH_ARGS="$BOXSH_ARGS --bind ro:$BUB_WEIXIN_STATE_DIR"
+[ -d "$BUB_WEIXIN_STATE_DIR" ] && BOXSH_ARGS="$BOXSH_ARGS --bind wr:$BUB_WEIXIN_STATE_DIR"
 # Feishu CLI auth directory (writable for token refresh)
 # Bind at original path, then symlink from $BUB_HOME/.feishu so the CLI
 # (which follows $HOME) can find it. boxsh wr binds don't support SRC:DST.

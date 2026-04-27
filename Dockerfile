@@ -38,7 +38,7 @@ RUN chmod +x /entrypoint.sh
 #   /workspace-base                  - agent workspace read-only base (COW lower layer)
 #   /workspace                       - COW upper layer (persists agent writes via $BUB_BOXSH)
 #   /root/.agents/skills             - bub skills directory (read-only in boxsh)
-#   /root/.openclaw/openclaw-weixin  - weixin credentials (read-only in boxsh)
+#   /root/.openclaw/openclaw-weixin  - weixin data (read-write in boxsh for credentials + sync state)
 #   /root/.bub                       - bub home (read-write in boxsh for tapes, config)
 VOLUME /workspace-base
 VOLUME /workspace
