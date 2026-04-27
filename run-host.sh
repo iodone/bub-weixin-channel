@@ -69,7 +69,7 @@ BUB_HOME="$(expand_path "${BUB_HOME:-$HOME/.bub}")"
 # Ensure required directories exist
 # NOTE: BUB_BOXSH_HOST must be empty (or non-existent) for boxsh cow:SRC:DST —
 # boxsh rmdir's DST before mounting overlay. Do NOT create files inside it here.
-mkdir -p "$BUB_WORKSPACE" "$BUB_BOXSH_HOST" "$BUB_HOME" "$BUB_FEISHU_HOME" \
+mkdir -p "$BUB_WORKSPACE" "$BUB_BOXSH_HOST" "$BUB_HOME" \
   "$BUB_HOME/.config" "$BUB_HOME/.local/share" "$BUB_HOME/.local/state" "$BUB_HOME/tmp"
 
 # Pre-create profiles in lower layer only (BUB_WORKSPACE).
