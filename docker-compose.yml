@@ -9,6 +9,7 @@ services:
       - ${BUB_BOXSH}:/workspace
       - ${BUB_SKILLS}:/root/.agents/skills
       - ${BUB_WEIXIN_DATA}:/root/.openclaw/openclaw-weixin
+      - ${BUB_FEISHU_HOME}:/root/.feishu
       - ${BUB_HOME}:/root/.bub
     # Required for boxsh sandbox (nested namespaces) inside Docker
     privileged: true
