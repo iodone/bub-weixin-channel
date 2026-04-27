@@ -103,10 +103,9 @@ cp .env.example .env
 
 # 2. 启动
 ./run-host.sh
-
-# 3. 进入沙箱调试
-./run-host.sh shell
 ```
+
+> **注意：** `./run-host.sh shell` 交互模式因 boxsh 自身限制暂不支持，仅可使用 `./run-host.sh` 启动网关服务。
 
 ### Docker 模式（推荐生产部署）
 
