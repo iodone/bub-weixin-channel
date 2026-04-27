@@ -96,10 +96,18 @@ BOXSH_ARGS="--sandbox \
 BUB_WEIXIN_STATE_DIR="$(dirname "$BUB_WEIXIN_DATA")"
 [ -d "$BUB_WEIXIN_STATE_DIR" ] && BOXSH_ARGS="$BOXSH_ARGS --bind ro:$BUB_WEIXIN_STATE_DIR"
 # Feishu CLI auth directory (writable for token refresh)
-# Bind to REAL home (not BUB_HOME) because feishu CLI uses os.homedir()
-# which reads /etc/passwd, ignoring the sandboxed HOME env var.
-FEISHU_BIND_TARGET="$(expand_path "~")/.feishu"
-[ -d "$BUB_FEISHU_HOME" ] && BOXSH_ARGS="$BOXSH_ARGS --bind wr:$BUB_FEISHU_HOME:$FEISHU_BIND_TARGET"
+# Bind at original path, then symlink from $BUB_HOME/.feishu so the CLI
+# (which follows $HOME) can find it. boxsh wr binds don't support SRC:DST.
+if [ -d "$BUB_FEISHU_HOME" ]; then
+    BOXSH_ARGS="$BOXSH_ARGS --bind wr:$BUB_FEISHU_HOME"
+    FEISHU_LINK="$BUB_HOME/.feishu"
+    if [ ! -e "$FEISHU_LINK" ]; then
+        ln -s "$BUB_FEISHU_HOME" "$FEISHU_LINK"
+    elif [ ! -L "$FEISHU_LINK" ] || [ "$(readlink "$FEISHU_LINK")" != "$BUB_FEISHU_HOME" ]; then
+        echo "Error: $FEISHU_LINK exists but does not point to $BUB_FEISHU_HOME" >&2
+        exit 1
+    fi
+fi
 
 # Sandbox init: set HOME/XDG to writable BUB_HOME, ensure PATH includes uv,
 # create profiles in COW upper layer
