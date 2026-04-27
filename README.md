@@ -145,7 +145,7 @@ docker-compose logs -f
 |------|------|------|
 | workspace | COW | Agent 工作空间（COW merged view，基座来自 `$BUB_WORKSPACE`） |
 | skills | 只读 | Bub 技能目录 |
-| weixin data | 只读 | 微信登录凭据 |
+| weixin data | 可写 | 微信登录凭据 + 同步状态 |
 | feishu auth | 可写 | feishu CLI 登录凭据（`~/.feishu`，token 刷新需要写权限） |
 | bub home | 可写 | Bub 运行数据（tapes、配置） |
 

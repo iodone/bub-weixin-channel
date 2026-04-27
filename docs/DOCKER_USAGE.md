@@ -45,7 +45,7 @@ docker-compose logs -f
 | `/workspace-base` | `BUB_WORKSPACE` | (必需) | (基座) | COW 只读基座（Docker volume，不在沙箱内直接暴露） |
 | `/workspace` | `BUB_BOXSH` | `~/work/boxsh/bub-im-bridge` | 🐄 COW | Agent 工作空间（boxsh COW merged view），写入持久化到宿主机 |
 | `/root/.agents/skills` | `BUB_SKILLS` | `~/.agents/skills` | 🔒 只读 | Bub 技能目录 |
-| `/root/.openclaw/openclaw-weixin` | `BUB_WEIXIN_DATA` | `~/.openclaw/openclaw-weixin` | 🔒 只读 | 微信登录凭据 |
+| `/root/.openclaw/openclaw-weixin` | `BUB_WEIXIN_DATA` | `~/.openclaw/openclaw-weixin` | ✏️ 可写 | 微信登录凭据 + 同步状态 |
 | `/root/.bub` | `BUB_HOME` | `~/.bub` | ✏️ 可写 | Bub 运行数据（tapes、配置） |
 
 ## 沙箱保护
@@ -67,7 +67,7 @@ entrypoint 通过 `exec boxsh --sandbox ...` 启动服务，boxsh 使用 `cow:/w
 
 ```bash
 # 1. 启动与 bub 同配置的新 boxsh 调试实例（推荐）
-#    /workspace 可读写（独立的 COW merged view），skills/weixin 只读
+#    /workspace 可读写（独立的 COW merged view），skills 只读
 #    适合验证 agent 在沙箱中的行为、测试文件读写
 docker-compose run --rm bub /entrypoint.sh shell
 

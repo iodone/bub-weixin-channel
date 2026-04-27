@@ -11,7 +11,7 @@
 #   /root                            (rw) home directory
 #   /workspace                       (cow) agent workspace (COW merged view)
 #   /root/.agents/skills             (ro) bub skills
-#   /root/.openclaw/openclaw-weixin  (ro) weixin credentials
+#   /root/.openclaw/openclaw-weixin  (rw) weixin data (credentials + sync state)
 #   /root/.bub                       (rw) bub home (tapes, config)
 #
 # COW via boxsh native cow:SRC:DST:
@@ -27,7 +27,7 @@ BOXSH_ARGS="--sandbox \
   --bind ro:/entrypoint.sh \
   --bind cow:/workspace-base:/workspace \
   --bind ro:/root/.agents/skills \
-  --bind ro:/root/.openclaw/openclaw-weixin \
+  --bind wr:/root/.openclaw/openclaw-weixin \
   --bind wr:/root/.bub"
 
 # Ensure profiles directory exists in BOTH lower (workspace-base) and upper
