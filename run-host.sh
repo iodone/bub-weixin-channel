@@ -115,6 +115,9 @@ BOXSH_ARGS="--sandbox \
 # uv binary and toolchain (Python installs, caches)
 [ -d "$UV_BIN_DIR" ] && BOXSH_ARGS="$BOXSH_ARGS --bind ro:$UV_BIN_DIR"
 [ -d "$UV_DATA_DIR" ] && BOXSH_ARGS="$BOXSH_ARGS --bind ro:$UV_DATA_DIR"
+# pipx venvs (for tools installed via pipx, e.g. kyuubi)
+PIPX_HOME="${PIPX_HOME:-$HOME/.local/pipx}"
+[ -d "$PIPX_HOME" ] && BOXSH_ARGS="$BOXSH_ARGS --bind ro:$PIPX_HOME"
 
 # Optional read-only binds (only if directories exist)
 # Real host directories: bind at original path, symlink from $BUB_HOME (via make_home_link above).
