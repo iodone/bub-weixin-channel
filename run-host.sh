@@ -109,8 +109,9 @@ BUB_WEIXIN_STATE_DIR="$(dirname "$BUB_WEIXIN_DATA")"
 [ -d "$BUB_WEIXIN_DATA" ] && BOXSH_ARGS="$BOXSH_ARGS --bind wr:$BUB_WEIXIN_DATA"
 # Feishu CLI auth directory (writable for token refresh)
 [ -d "$BUB_FEISHU_HOME" ] && BOXSH_ARGS="$BOXSH_ARGS --bind wr:$BUB_FEISHU_HOME"
-# User config and kyuubi (writable, tools resolve via ~)
+# User config, cache, and kyuubi (writable, tools resolve via ~)
 [ -d "$HOME/.config" ] && BOXSH_ARGS="$BOXSH_ARGS --bind wr:$HOME/.config"
+[ -d "$HOME/.cache" ] && BOXSH_ARGS="$BOXSH_ARGS --bind wr:$HOME/.cache"
 [ -d "$HOME/.kyuubi" ] && BOXSH_ARGS="$BOXSH_ARGS --bind wr:$HOME/.kyuubi"
 
 # Sandbox init: HOME is the real user home, TMPDIR in BUB_HOME for isolation
