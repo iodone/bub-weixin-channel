@@ -9,10 +9,12 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from bub_im_bridge.feishu.channel import (
+    FeishuChannel,
     FeishuInboundMessage,
     FeishuMention,
     _parse_event,
@@ -71,6 +73,14 @@ def _make_raw_event(
     }
 
 
+def _make_channel(tmp_path: Path) -> FeishuChannel:
+    """Create a minimal FeishuChannel for testing (no real WS connection)."""
+    framework = MagicMock()
+    framework.workspace = tmp_path
+    channel = FeishuChannel(on_receive=AsyncMock(), framework=framework)
+    return channel
+
+
 # ---------------------------------------------------------------------------
 # Phase 4: Structured Actor Context Tests
 # ---------------------------------------------------------------------------
@@ -119,61 +129,68 @@ class TestParseEventStructuredSender:
         assert msg.mentions == ()
 
 
+@pytest.mark.asyncio
 class TestStructuredPayloadInChannelMessage:
-    """Verify that the payload sent to the model includes structured actor data.
+    """Verify that the payload sent to the model includes structured actor data."""
 
-    CURRENT GAP: _build_channel_message() only includes sender_id and sender_name,
-    but does NOT include structured mentions[] or reply_target.
-    These tests document the expected behavior per phase 4 spec.
-    """
-
-    def test_payload_includes_sender_as_structured_object(self):
+    async def test_payload_includes_sender_as_structured_object(self, tmp_path: Path):
         """Payload should include sender as {open_id, name, user_id, union_id}."""
+        channel = _make_channel(tmp_path)
         raw = _make_raw_event(sender_open_id="ou_alice", sender_name="Alice")
         msg = _parse_event(raw)
         assert msg is not None
 
-        # The payload currently only has sender_id and sender_name as flat fields.
-        # Phase 4 requires sender as a structured object.
-        # This test documents the expected structure.
-        expected_sender = {
-            "open_id": "ou_alice",
-            "name": "Alice",
-            "user_id": "sender_uid",
-            "union_id": "on_sender",
-        }
-        # This assertion will FAIL until phase 4 is implemented.
-        # It documents the target behavior.
-        # For now, verify the current flat fields exist:
-        # payload = ...  # would need to call _build_channel_message
-        # assert payload.get("sender") == expected_sender
+        channel_msg = await channel._build_channel_message(
+            msg, msg.text.strip(), "ou_alice", "feishu:chat_001"
+        )
+        payload = json.loads(channel_msg.content)
 
-    def test_payload_includes_mentions_as_structured_list(self):
+        assert "sender" in payload
+        assert payload["sender"]["open_id"] == "ou_alice"
+        assert payload["sender"]["name"] == "Alice"
+        assert payload["sender"]["user_id"] == "sender_uid"
+        assert payload["sender"]["union_id"] == "on_sender"
+
+    async def test_payload_includes_mentions_as_structured_list(self, tmp_path: Path):
         """Payload should include mentions[] with {open_id, name} per mention."""
+        channel = _make_channel(tmp_path)
         raw = _make_raw_event(
-            mentions=[{"open_id": "ou_bob", "name": "Bob", "key": "@_user1"}]
+            mentions=[
+                {"open_id": "ou_bob", "name": "Bob", "key": "@_user1"},
+                {"open_id": "ou_charlie", "name": "Charlie", "key": "@_user2"},
+            ]
         )
         msg = _parse_event(raw)
         assert msg is not None
-        assert len(msg.mentions) == 1
-        assert msg.mentions[0].open_id == "ou_bob"
-        assert msg.mentions[0].name == "Bob"
 
-        # Phase 4: the payload should include a "mentions" key with structured data.
-        # This will FAIL until implemented.
+        channel_msg = await channel._build_channel_message(
+            msg, msg.text.strip(), "ou_sender", "feishu:chat_001"
+        )
+        payload = json.loads(channel_msg.content)
 
-    def test_reply_target_defaults_to_sender(self):
+        assert "mentions" in payload
+        assert len(payload["mentions"]) == 2
+        assert payload["mentions"][0] == {"open_id": "ou_bob", "name": "Bob"}
+        assert payload["mentions"][1] == {"open_id": "ou_charlie", "name": "Charlie"}
+
+    async def test_reply_target_defaults_to_sender(self, tmp_path: Path):
         """When no parent_id, reply_target should default to current sender."""
+        channel = _make_channel(tmp_path)
         raw = _make_raw_event(sender_open_id="ou_alice", sender_name="Alice")
         msg = _parse_event(raw)
         assert msg is not None
-        assert msg.parent_id is None  # no quoted message
 
-        # Phase 4: payload should include reply_target = sender when no parent_id
-        # This will FAIL until implemented.
+        channel_msg = await channel._build_channel_message(
+            msg, msg.text.strip(), "ou_alice", "feishu:chat_001"
+        )
+        payload = json.loads(channel_msg.content)
 
-    def test_reply_target_preserved_when_quoting(self):
-        """When parent_id exists, reply_target should reflect the quoted context."""
+        assert "reply_target" in payload
+        assert payload["reply_target"] == "ou_alice"
+
+    async def test_reply_target_still_sender_when_quoting(self, tmp_path: Path):
+        """Even when quoting, reply_target defaults to current sender."""
+        channel = _make_channel(tmp_path)
         raw = _make_raw_event(
             sender_open_id="ou_alice",
             sender_name="Alice",
@@ -181,10 +198,42 @@ class TestStructuredPayloadInChannelMessage:
         )
         msg = _parse_event(raw)
         assert msg is not None
-        assert msg.parent_id == "msg_parent"
 
-        # Phase 4: reply_target should be derived from the quoted message context,
-        # not automatically switched to a mentioned person.
+        channel_msg = await channel._build_channel_message(
+            msg, msg.text.strip(), "ou_alice", "feishu:chat_001"
+        )
+        payload = json.loads(channel_msg.content)
+
+        # reply_target is the current sender, not the quoted message author
+        assert payload["reply_target"] == "ou_alice"
+
+    async def test_payload_preserves_flat_sender_fields(self, tmp_path: Path):
+        """Flat sender_id and sender_name should still be present for backward compat."""
+        channel = _make_channel(tmp_path)
+        raw = _make_raw_event(sender_open_id="ou_alice", sender_name="Alice")
+        msg = _parse_event(raw)
+
+        channel_msg = await channel._build_channel_message(
+            msg, msg.text.strip(), "ou_alice", "feishu:chat_001"
+        )
+        payload = json.loads(channel_msg.content)
+
+        # Backward compat: flat fields still present
+        assert payload["sender_id"] == "ou_alice"
+        assert payload["sender_name"] == "Alice"
+
+    async def test_empty_mentions_produces_empty_list(self, tmp_path: Path):
+        """No mentions should produce an empty list in payload."""
+        channel = _make_channel(tmp_path)
+        raw = _make_raw_event(mentions=[])
+        msg = _parse_event(raw)
+
+        channel_msg = await channel._build_channel_message(
+            msg, msg.text.strip(), "ou_sender", "feishu:chat_001"
+        )
+        payload = json.loads(channel_msg.content)
+
+        assert payload["mentions"] == []
 
 
 # ---------------------------------------------------------------------------
@@ -211,37 +260,8 @@ class TestPromptRulesForGroupChat:
         hint = build_user_context_hint(profile)
         assert "Alice Wang" in hint
 
-    def test_prompt_does_not_say_unknown_when_name_is_available(self, tmp_path: Path):
-        """Prompt should NOT say 'I don't know the name' when sender_name is in context.
-
-        This tests the build_user_context_hint output — if the profile has a name,
-        the prompt must include it, and downstream rules should prevent the model
-        from claiming ignorance.
-        """
-        store = ProfileStore(tmp_path / "profiles")
-        store.load()
-
-        profile = store.upsert(
-            platform="feishu",
-            id_field="open_id",
-            id_value="ou_alice",
-            name="Alice Wang",
-        )
-
-        hint = build_user_context_hint(profile)
-        # The hint includes the sender name
-        assert "Alice Wang" in hint
-        # Phase 5: should also include a rule like "不要说不知道发送者的名字"
-        # This will FAIL until prompt rules are added.
-
-    def test_prompt_includes_reply_target_rules(self, tmp_path: Path):
-        """Prompt should include rules about default reply to sender.
-
-        Phase 5 requires:
-        - Default reply to current sender
-        - Do not switch addressee because multiple names appear in text
-        - Do not emit explicit @name unless continuation requires it
-        """
+    def test_prompt_includes_reply_rule_default_to_sender(self, tmp_path: Path):
+        """Prompt should include rule: default reply to sender."""
         store = ProfileStore(tmp_path / "profiles")
         store.load()
 
@@ -253,30 +273,58 @@ class TestPromptRulesForGroupChat:
         )
 
         hint = build_user_context_hint(profile)
-        # Phase 5: hint should contain reply target rules
-        # This will FAIL until prompt rules are added.
-        # Expected: some mention of "默认回复发送者" or similar rule
+        assert "默认回复" in hint or "默认" in hint
+        assert "发送者" in hint
 
-    def test_prompt_rules_for_group_chat_mentions(self, tmp_path: Path):
-        """Prompt should tell model not to confuse sender with mentioned users.
-
-        In the failing case: bot replies to 张耀东 but uses @Philip name.
-        Root cause: model conflates sender and mentions in text.
-        Prompt should include rules to separate them.
-        """
+    def test_prompt_includes_rule_not_switch_addressee(self, tmp_path: Path):
+        """Prompt should include rule: don't switch addressee because of multiple names."""
         store = ProfileStore(tmp_path / "profiles")
         store.load()
 
         profile = store.upsert(
             platform="feishu",
             id_field="open_id",
-            id_value="ou_sender",
-            name="张耀东",
+            id_value="ou_alice",
+            name="Alice",
         )
 
         hint = build_user_context_hint(profile)
-        # Phase 5: should include rules about not switching addressee
-        # This will FAIL until implemented.
+        assert "不要擅自切换" in hint or "切换" in hint
+
+    def test_prompt_includes_rule_not_say_unknown_name(self, tmp_path: Path):
+        """Prompt should include rule: don't say 'I don't know your name' when name is available."""
+        store = ProfileStore(tmp_path / "profiles")
+        store.load()
+
+        profile = store.upsert(
+            platform="feishu",
+            id_field="open_id",
+            id_value="ou_alice",
+            name="Alice Wang",
+        )
+
+        hint = build_user_context_hint(profile)
+        assert "不知道" in hint or "你的名字" in hint or "是谁" in hint
+
+    def test_prompt_includes_rule_not_emit_at_name(self, tmp_path: Path):
+        """Prompt should include rule: don't output @name unless needed."""
+        store = ProfileStore(tmp_path / "profiles")
+        store.load()
+
+        profile = store.upsert(
+            platform="feishu",
+            id_field="open_id",
+            id_value="ou_alice",
+            name="Alice",
+        )
+
+        hint = build_user_context_hint(profile)
+        assert "@" in hint  # mentions the @ symbol in the rule
+
+    def test_prompt_rules_present_even_without_profile(self):
+        """Reply rules should be present even when no sender profile exists."""
+        hint = build_user_context_hint(None)
+        assert "回复规则" in hint or "默认回复" in hint
 
 
 # ---------------------------------------------------------------------------

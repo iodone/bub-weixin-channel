@@ -25,8 +25,17 @@ def build_user_context_hint(profile: UserProfile | None) -> str:
         "- 不要把内部实现细节输出给终端用户"
     )
 
+    reply_rules = (
+        "回复规则：\n"
+        "- 默认回复当前消息的发送者（sender），不要擅自切换称呼对象\n"
+        "- 正文中出现多个名字不代表需要切换回复对象；只有明确需要继续 @某个 mention 时才切换\n"
+        "- 如果发送者的名字已经在上下文中（sender.name 或 profile.name），"
+        "不要说「我不知道你的名字」「你是谁」之类的话\n"
+        "- 不要主动输出 @名字 除非确实需要继续点名某个 mention"
+    )
+
     if profile is None:
-        return f"\n\n<user_context>\n{tool_hints}\n</user_context>"
+        return f"\n\n<user_context>\n{tool_hints}\n\n{reply_rules}\n</user_context>"
 
     parts = [f"\n\n<user_context>\n发送者: {profile.name}"]
     if profile.department or profile.title:
@@ -37,6 +46,8 @@ def build_user_context_hint(profile: UserProfile | None) -> str:
         parts.append(f"兴趣爱好: {', '.join(profile.interests)}")
     parts.append("")
     parts.append(tool_hints)
+    parts.append("")
+    parts.append(reply_rules)
     parts.append("</user_context>")
     return "\n".join(parts)
 

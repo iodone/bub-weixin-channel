@@ -549,12 +549,35 @@ class FeishuChannel(Channel):
         sender_profile = self._profile_store.lookup("feishu", "open_id", sender_id) if sender_id else None
         user_context_hint = build_user_context_hint(sender_profile)
 
+        # Structured actor context (phase 4)
+        sender_obj: dict[str, Any] = {
+            "open_id": message.sender_open_id or "",
+            "name": message.sender_name or "",
+        }
+        if message.sender_user_id:
+            sender_obj["user_id"] = message.sender_user_id
+        if message.sender_union_id:
+            sender_obj["union_id"] = message.sender_union_id
+
+        mentions_list: list[dict[str, str]] = [
+            {"open_id": m.open_id or "", "name": m.name or ""}
+            for m in message.mentions
+            if m.open_id  # skip mentions without open_id
+        ]
+
+        # reply_target defaults to sender; if quoting, still default to sender
+        # (the model should decide whether to address the quoted person)
+        reply_target = sender_id
+
         payload: dict[str, Any] = {
             "message": message.text + FEISHU_OUTPUT_INSTRUCTION + history_hint + user_context_hint,
             "message_id": message.message_id,
             "chat_type": message.chat_type,
             "sender_id": sender_id,
             "sender_name": message.sender_display,
+            "sender": sender_obj,
+            "mentions": mentions_list,
+            "reply_target": reply_target,
             "create_time": format_feishu_timestamp(message.create_time),
         }
 
