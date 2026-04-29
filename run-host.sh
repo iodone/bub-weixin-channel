@@ -156,9 +156,14 @@ run_supervised() {
     exit 0
 }
 
-# If no arguments, start the gateway
+# Recommended plugins — installed before gateway starts (idempotent)
+INSTALL_PLUGINS="uv run bub -w $BUB_BOXSH_HOST install bub-web-search@main && \
+  uv run bub -w $BUB_BOXSH_HOST install bub-schedule@main && \
+  uv pip install 'git+https://github.com/ob-labs/bubseek.git#subdirectory=contrib/bubseek-marimo'"
+
+# If no arguments, install plugins then start the gateway
 if [ $# -eq 0 ]; then
-    run_supervised "$SANDBOX_INIT && cd $SCRIPT_DIR && uv run bub -w $BUB_BOXSH_HOST gateway"
+    run_supervised "$SANDBOX_INIT && cd $SCRIPT_DIR && $INSTALL_PLUGINS && uv run bub -w $BUB_BOXSH_HOST gateway"
 fi
 
 # If first argument is "shell" or "sh", launch boxsh native interactive shell

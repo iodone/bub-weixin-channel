@@ -88,6 +88,19 @@ uv run bub gateway
 
 </details>
 
+## 推荐插件
+
+```bash
+# Web 搜索能力
+uv run bub install bub-web-search@main
+
+# 定时任务
+uv run bub install bub-schedule@main
+
+# Bubseek Marimo 集成
+uv pip install "git+https://github.com/ob-labs/bubseek.git#subdirectory=contrib/bubseek-marimo"
+```
+
 ## 沙箱部署
 
 通过 [boxsh](https://github.com/xicilion/boxsh) 沙箱运行，Agent 对工作空间的写入通过 COW（写时复制）隔离到独立目录，原始工作空间不受影响。支持两种部署模式：
