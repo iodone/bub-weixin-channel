@@ -156,19 +156,8 @@ run_supervised() {
     exit 0
 }
 
-# Install recommended plugins on the host (before sandbox, since .venv is read-only inside)
-install_plugins() {
-    echo "Installing recommended plugins..."
-    cd "$SCRIPT_DIR"
-    uv run bub install bub-web-search@main 2>/dev/null || true
-    uv run bub install bub-schedule@main 2>/dev/null || true
-    uv pip install "git+https://github.com/ob-labs/bubseek.git#subdirectory=contrib/bubseek-marimo" 2>/dev/null || true
-    echo "Plugins installed."
-}
-
-# If no arguments, install plugins then start the gateway
+# If no arguments, start the gateway
 if [ $# -eq 0 ]; then
-    install_plugins
     run_supervised "$SANDBOX_INIT && cd $SCRIPT_DIR && uv run bub -w $BUB_BOXSH_HOST gateway"
 fi
 
