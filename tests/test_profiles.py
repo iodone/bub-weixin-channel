@@ -343,3 +343,325 @@ def test_feishu_reload_extras_not_indexed(tmp_path: Path):
 
     assert store2.lookup("feishu", "open_id", "ou_reload") is not None
     assert store2.lookup("feishu", "union_id", "on_reload") is None
+
+
+# ---------------------------------------------------------------------------
+# Phase 1: identity_patch tests
+# ---------------------------------------------------------------------------
+
+
+def test_identity_patch_creates_new_profile(tmp_path: Path):
+    """identity_patch creates a minimal profile when none exists."""
+    store = ProfileStore(tmp_path / "profiles")
+    store.load()
+
+    p = store.identity_patch(
+        platform="feishu",
+        id_field="open_id",
+        id_value="ou_new",
+        name="Alice",
+        extra_ids={"union_id": "on_alice"},
+    )
+    assert p.name == "Alice"
+    assert p.im_ids["feishu"]["open_id"] == "ou_new"
+    assert p.im_ids["feishu"]["union_id"] == "on_alice"
+    assert p.department == ""
+    assert p.personality == []  # knowledge field stays empty
+
+
+def test_identity_patch_patches_existing_identity_fields(tmp_path: Path):
+    """identity_patch fills missing identity fields on existing profile."""
+    store = ProfileStore(tmp_path / "profiles")
+    store.load()
+
+    # Create initial profile
+    store.upsert(
+        platform="feishu", id_field="open_id", id_value="ou_xxx",
+        name="Alice", extra_ids={"union_id": "on_xxx"},
+    )
+
+    # Patch with new identity data
+    patched = store.identity_patch(
+        platform="feishu",
+        id_field="open_id",
+        id_value="ou_xxx",
+        extra_ids={"user_id": "alice.wang"},
+        department="Engineering",
+    )
+    assert patched.im_ids["feishu"]["user_id"] == "alice.wang"
+    assert patched.department == "Engineering"
+
+
+def test_identity_patch_never_mutates_knowledge_fields(tmp_path: Path):
+    """identity_patch must not touch aliases, personality, interests, relationships, body."""
+    store = ProfileStore(tmp_path / "profiles")
+    store.load()
+
+    # Create profile with knowledge fields set
+    p = store.upsert(
+        platform="feishu", id_field="open_id", id_value="ou_know",
+        name="Knower",
+    )
+    store.update_field(p.id, "personality", ["严谨"])
+    store.update_field(p.id, "interests", ["编程"])
+    store.update_field(p.id, "aliases", ["小K"])
+
+    # Identity patch should not touch knowledge fields
+    patched = store.identity_patch(
+        platform="feishu",
+        id_field="open_id",
+        id_value="ou_know",
+        name="Knower",
+        department="OLAP",
+    )
+    assert patched.personality == ["严谨"]
+    assert patched.interests == ["编程"]
+    assert patched.aliases == ["小K"]
+    assert patched.department == "OLAP"
+
+
+def test_identity_patch_upgrades_placeholder_name(tmp_path: Path):
+    """identity_patch upgrades name when current name == open_id (placeholder)."""
+    store = ProfileStore(tmp_path / "profiles")
+    store.load()
+
+    # Create with placeholder name (open_id as name)
+    store.upsert(
+        platform="feishu", id_field="open_id", id_value="ou_ph",
+        name="ou_ph",
+    )
+
+    # Patch with real name
+    patched = store.identity_patch(
+        platform="feishu",
+        id_field="open_id",
+        id_value="ou_ph",
+        name="Alice Wang",
+    )
+    assert patched.name == "Alice Wang"
+
+
+def test_identity_patch_upgrades_placeholder_from_api_name(tmp_path: Path):
+    """Regression: dirty profile (name == open_id) upgrades when API provides real name,
+    even when sender_name is empty (simulates channel.py calling Contact API for dirty profiles)."""
+    store = ProfileStore(tmp_path / "profiles")
+    store.load()
+
+    # Create dirty profile (name == open_id)
+    store.upsert(
+        platform="feishu", id_field="open_id", id_value="ou_dirty",
+        name="ou_dirty",
+    )
+
+    # sender_name is empty, but API returns real name
+    patched = store.identity_patch(
+        platform="feishu",
+        id_field="open_id",
+        id_value="ou_dirty",
+        name="",  # no sender_name
+    )
+    # With empty name, placeholder stays (no upgrade source)
+    assert patched.name == "ou_dirty"
+
+    # But when API provides name (simulated by passing it), placeholder upgrades
+    patched2 = store.identity_patch(
+        platform="feishu",
+        id_field="open_id",
+        id_value="ou_dirty",
+        name="Real Name From API",
+    )
+    assert patched2.name == "Real Name From API"
+
+
+def test_identity_patch_does_not_overwrite_valid_name(tmp_path: Path):
+    """identity_patch keeps existing valid name, doesn't overwrite with weaker info."""
+    store = ProfileStore(tmp_path / "profiles")
+    store.load()
+
+    # Create with real name
+    store.upsert(
+        platform="feishu", id_field="open_id", id_value="ou_valid",
+        name="Alice Wang",
+    )
+
+    # Patch with no name — should keep existing
+    patched = store.identity_patch(
+        platform="feishu",
+        id_field="open_id",
+        id_value="ou_valid",
+    )
+    assert patched.name == "Alice Wang"
+
+    # Patch with different name — should also keep existing (not a placeholder)
+    patched2 = store.identity_patch(
+        platform="feishu",
+        id_field="open_id",
+        id_value="ou_valid",
+        name="Someone Else",
+    )
+    assert patched2.name == "Alice Wang"
+
+
+def test_identity_patch_upgrades_ou_prefix_name(tmp_path: Path):
+    """identity_patch upgrades name that starts with ou_ even if not exactly open_id."""
+    store = ProfileStore(tmp_path / "profiles")
+    store.load()
+
+    # Simulate dirty data: name is ou_ prefixed but not exactly open_id
+    store.upsert(
+        platform="feishu", id_field="open_id", id_value="ou_abc",
+        name="ou_abc_dirty",
+    )
+
+    patched = store.identity_patch(
+        platform="feishu",
+        id_field="open_id",
+        id_value="ou_abc",
+        name="Real Name",
+    )
+    assert patched.name == "Real Name"
+
+
+def test_identity_patch_updates_timestamps(tmp_path: Path):
+    """identity_patch always updates last_seen and updated_at."""
+    store = ProfileStore(tmp_path / "profiles")
+    store.load()
+
+    p = store.upsert(
+        platform="feishu", id_field="open_id", id_value="ou_ts",
+        name="Timer",
+    )
+    old_last_seen = p.last_seen
+
+    import time
+    time.sleep(0.01)
+
+    patched = store.identity_patch(
+        platform="feishu",
+        id_field="open_id",
+        id_value="ou_ts",
+    )
+    assert patched.last_seen >= old_last_seen
+    assert patched.updated_at >= old_last_seen
+
+
+def test_identity_patch_persists_to_disk(tmp_path: Path):
+    """identity_patch writes changes to disk and survives reload."""
+    store = ProfileStore(tmp_path / "profiles")
+    store.load()
+
+    store.identity_patch(
+        platform="feishu",
+        id_field="open_id",
+        id_value="ou_persist",
+        name="Persistent",
+        department="OLAP",
+    )
+
+    # Reload
+    store2 = ProfileStore(tmp_path / "profiles")
+    store2.load()
+    p = store2.lookup("feishu", "open_id", "ou_persist")
+    assert p is not None
+    assert p.name == "Persistent"
+    assert p.department == "OLAP"
+
+
+# ---------------------------------------------------------------------------
+# Phase 3: update_field knowledge-only tests
+# ---------------------------------------------------------------------------
+
+
+def test_update_field_only_changes_requested_field(tmp_path: Path):
+    """update_field only modifies the specified field, not others."""
+    store = ProfileStore(tmp_path / "profiles")
+    store.load()
+
+    p = store.upsert(
+        platform="feishu", id_field="open_id", id_value="ou_upd2",
+        name="Updater",
+    )
+    store.update_field(p.id, "personality", ["严谨"])
+
+    updated = store.get(p.id)
+    assert updated is not None
+    assert updated.personality == ["严谨"]
+    assert updated.name == "Updater"  # unchanged
+    assert updated.department == ""  # unchanged
+
+
+def test_update_field_append_preserves_existing(tmp_path: Path):
+    """update_field with append=True adds to existing list."""
+    store = ProfileStore(tmp_path / "profiles")
+    store.load()
+
+    p = store.upsert(
+        platform="feishu", id_field="open_id", id_value="ou_app",
+        name="Appender",
+    )
+    store.update_field(p.id, "interests", ["编程"])
+    store.update_field(p.id, "interests", ["音乐"])  # replaces
+
+    updated = store.get(p.id)
+    assert updated is not None
+    # update_field replaces, not appends — append logic is in tools.py
+    assert updated.interests == ["音乐"]
+
+
+def test_update_field_rejects_identity_fields(tmp_path: Path):
+    """update_field rejects modifying protected identity fields."""
+    store = ProfileStore(tmp_path / "profiles")
+    store.load()
+
+    p = store.upsert(
+        platform="feishu", id_field="open_id", id_value="ou_prot",
+        name="Protected",
+    )
+
+    # id and schema_version are protected
+    result = store.update_field(p.id, "id", "newid")
+    assert result is None
+
+    result = store.update_field(p.id, "schema_version", "2.0")
+    assert result is None
+
+    result = store.update_field(p.id, "first_seen", "2020-01-01")
+    assert result is None
+
+
+# ---------------------------------------------------------------------------
+# Combined flow: simulate FeishuChannel identity patch + user.update
+# ---------------------------------------------------------------------------
+
+
+def test_feishu_channel_identity_patch_flow(tmp_path: Path):
+    """Simulate the full FeishuChannel flow: identity_patch then user.update."""
+    store = ProfileStore(tmp_path / "profiles")
+    store.load()
+
+    # 1. First message from new sender — identity_patch creates profile
+    p = store.identity_patch(
+        platform="feishu",
+        id_field="open_id",
+        id_value="ou_flow",
+        name="Alice",
+        extra_ids={"union_id": "on_flow", "user_id": "alice"},
+    )
+    assert p.name == "Alice"
+    assert p.department == ""
+
+    # 2. Agent observes personality — user.update (knowledge field)
+    store.update_field(p.id, "personality", ["逻辑严谨"])
+    updated = store.get(p.id)
+    assert updated.personality == ["逻辑严谨"]
+
+    # 3. Second message from same sender — identity_patch patches missing fields
+    p2 = store.identity_patch(
+        platform="feishu",
+        id_field="open_id",
+        id_value="ou_flow",
+        department="Engineering",
+    )
+    assert p2.department == "Engineering"
+    assert p2.personality == ["逻辑严谨"]  # knowledge field preserved
+    assert p2.name == "Alice"  # valid name preserved

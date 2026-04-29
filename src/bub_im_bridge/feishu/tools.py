@@ -144,6 +144,9 @@ async def user_lookup(params: UserLookupInput, *, context: ToolContext) -> str:
     当消息中提及某个用户（如 @某某），或需要了解某人的信息时使用此工具。
     按名字查找时使用 name 参数，按 IM ID 查找时使用 platform + id_field + id_value。
     Feishu 用户只能用 open_id (ou_ 开头) 查找。
+
+    注意：按名字查找是便捷搜索，不是 canonical identity 解析。
+    sender 身份确认应使用 open_id，不依赖名字匹配。
     """
     store = _get_profile_store(context)
 
@@ -204,11 +207,14 @@ class UserUpdateInput(BaseModel):
 
 @tool(name="user.update", model=UserUpdateInput, context=True)
 async def user_update(params: UserUpdateInput, *, context: ToolContext) -> str:
-    """更新用户 profile 的字段。
+    """更新用户 profile 的认知字段（knowledge fields）。
 
     当观察到用户的行为特征、兴趣爱好、人际关系等信息时，使用此工具记录到对应 profile。
-    支持更新: personality（个性特征）, interests（兴趣爱好）, aliases（别名）,
+    仅支持更新: personality（个性特征）, interests（兴趣爱好）, aliases（别名）,
     relationships（人际关系）, body（自由文本，如评价、观察日志）。
+
+    不允许更新身份字段（name, im_ids, department, title 等），这些由系统自动维护。
+    追加新观察时需显式传 append=True，默认行为是替换当前字段值。
     """
     store = _get_profile_store(context)
 
@@ -268,7 +274,7 @@ async def user_create(params: UserCreateInput, *, context: ToolContext) -> str:
     """创建新用户 profile。
 
     当需要手动创建一个新的用户 profile 时使用此工具。
-    如果用户已存在（相同 platform + id_field + id_value），会更新已有 profile。
+    如果用户已存在（相同 platform + id_field + id_value），只补缺 identity 字段，不覆盖已有数据。
     Feishu 用户必须用 open_id (ou_ 开头) 创建。
     """
     if params.platform == "feishu":
@@ -279,7 +285,8 @@ async def user_create(params: UserCreateInput, *, context: ToolContext) -> str:
 
     store = _get_profile_store(context)
 
-    profile = store.upsert(
+    # identity_patch: create if missing, only fill identity fields if exists
+    profile = store.identity_patch(
         platform=params.platform,
         id_field=params.id_field,
         id_value=params.id_value,

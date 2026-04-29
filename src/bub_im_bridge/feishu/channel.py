@@ -426,43 +426,36 @@ class FeishuChannel(Channel):
         # Record start time for elapsed time calculation
         self._message_start_time[message.message_id] = time.time()
 
-        # Best-effort profile enrichment (must not block message dispatch)
+        # Best-effort sender identity patch (must not block message dispatch)
         try:
             if sender_id and message.sender_type != "bot":
-                profile = self._profile_store.lookup("feishu", "open_id", sender_id)
-                if profile is not None:
-                    # Upgrade placeholder name if current name is just the open_id
-                    if profile.name == sender_id and message.sender_name:
-                        self._profile_store.upsert(
-                            platform="feishu",
-                            id_field="open_id",
-                            id_value=sender_id,
-                            name=message.sender_name,
-                        )
-                    else:
-                        self._profile_store.touch(profile.id)
-                else:
-                    extra_ids: dict[str, str] = {}
-                    if message.sender_union_id:
-                        extra_ids["union_id"] = message.sender_union_id
-                    if message.sender_user_id:
-                        extra_ids["user_id"] = message.sender_user_id
+                extra_ids: dict[str, str] = {}
+                if message.sender_union_id:
+                    extra_ids["union_id"] = message.sender_union_id
+                if message.sender_user_id:
+                    extra_ids["user_id"] = message.sender_user_id
 
-                    info = {"name": message.sender_name or sender_id}
-                    if self._api_client is not None:
-                        from bub_im_bridge.feishu.api import fetch_user_info
-                        info = fetch_user_info(self._api_client, sender_id)
+                # Try to get richer info from Contact API for new senders
+                # or when existing profile has placeholder name (name == open_id)
+                existing = self._profile_store.lookup("feishu", "open_id", sender_id)
+                needs_api = existing is None or (
+                    not message.sender_name and existing.name.startswith("ou_")
+                )
+                info: dict[str, Any] = {}
+                if needs_api and self._api_client is not None:
+                    from bub_im_bridge.feishu.api import fetch_user_info
+                    info = fetch_user_info(self._api_client, sender_id)
 
-                    self._profile_store.upsert(
-                        platform="feishu",
-                        id_field="open_id",
-                        id_value=sender_id,
-                        name=info.get("name", sender_id),
-                        extra_ids=extra_ids,
-                        department=info.get("department_id", ""),
-                        title=info.get("job_title", ""),
-                        avatar_url=info.get("avatar_url", ""),
-                    )
+                self._profile_store.identity_patch(
+                    platform="feishu",
+                    id_field="open_id",
+                    id_value=sender_id,
+                    name=message.sender_name or info.get("name", ""),
+                    extra_ids=extra_ids if extra_ids else None,
+                    department=info.get("department_id", ""),
+                    title=info.get("job_title", ""),
+                    avatar_url=info.get("avatar_url", ""),
+                )
         except Exception:
             logger.warning("feishu.profile_enrichment failed sender={}", sender_id, exc_info=True)
 
