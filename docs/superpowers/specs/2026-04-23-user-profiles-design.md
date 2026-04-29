@@ -46,9 +46,9 @@ aliases: ["小王", "Alice"]         # Optional. Alternative names.
 # === IM Platform IDs ===
 im_ids:                            # Required. At least one platform.
   feishu:
-    open_id: "ou_xxxxxxxxxxxxxxxxxxxx"
-    union_id: "on_xxxxxxxxxxxxxxxxxxxx"
-    user_id: "alice.wang"
+    open_id: "ou_xxxxxxxxxxxxxxxxxxxx"     # Canonical identity. Must start with ou_.
+    union_id: "on_xxxxxxxxxxxxxxxxxxxx"    # Auxiliary. Cross-app ID. Not used for lookup.
+    user_id: "alice.wang"                  # Auxiliary. Tenant-internal ID. Not used for lookup.
   telegram:
     user_id: "8671028832"
   wechat:
