@@ -244,7 +244,7 @@ class ProfileStore:
             im_ids[platform].update(extra_ids)
 
         profile = UserProfile.create(
-            name=name or id_value,
+            name=name,
             im_ids=im_ids,
             department=department,
             title=title,
