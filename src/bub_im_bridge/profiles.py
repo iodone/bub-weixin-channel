@@ -187,6 +187,118 @@ class ProfileStore:
         self._write(profile)
         return profile
 
+    # Identity fields that can be patched by automatic sender handling
+    _IDENTITY_FIELDS = frozenset({
+        "name", "im_ids", "department", "title", "avatar_url",
+        "first_seen", "last_seen", "updated_at", "source",
+    })
+
+    # Knowledge fields that must never be touched by identity patch
+    _KNOWLEDGE_FIELDS = frozenset({
+        "aliases", "personality", "interests", "relationships", "body",
+    })
+
+    def identity_patch(
+        self,
+        *,
+        platform: str,
+        id_field: str,
+        id_value: str,
+        name: str = "",
+        extra_ids: dict[str, str] | None = None,
+        department: str = "",
+        title: str = "",
+        avatar_url: str = "",
+    ) -> UserProfile:
+        """Patch identity fields only. Never touches knowledge fields.
+
+        This is the canonical write path for automatic sender handling.
+        - If profile does not exist, creates a minimal profile.
+        - If profile exists, patches identity fields only.
+        - Handles name == open_id placeholder upgrade.
+        - Never writes: aliases, personality, interests, relationships, body.
+        """
+        if platform == "feishu" and not _is_valid_feishu_user_id(id_field, id_value):
+            raise ValueError(
+                f"Feishu canonical identity must be open_id with ou_ prefix, "
+                f"got id_field={id_field!r}, id_value={id_value!r}"
+            )
+
+        existing = self.lookup(platform, id_field, id_value)
+        if existing is not None:
+            return self._patch_existing_identity(
+                existing,
+                platform=platform,
+                id_field=id_field,
+                id_value=id_value,
+                name=name,
+                extra_ids=extra_ids,
+                department=department,
+                title=title,
+                avatar_url=avatar_url,
+            )
+
+        # Create minimal profile with identity fields only
+        im_ids: dict[str, dict[str, str]] = {platform: {id_field: id_value}}
+        if extra_ids:
+            im_ids[platform].update(extra_ids)
+
+        profile = UserProfile.create(
+            name=name,
+            im_ids=im_ids,
+            department=department,
+            title=title,
+            avatar_url=avatar_url,
+        )
+        self._profiles[profile.id] = profile
+        self._build_index(profile)
+        self._write(profile)
+        return profile
+
+    def _patch_existing_identity(
+        self,
+        existing: UserProfile,
+        *,
+        platform: str,
+        id_field: str,
+        id_value: str,
+        name: str = "",
+        extra_ids: dict[str, str] | None = None,
+        department: str = "",
+        title: str = "",
+        avatar_url: str = "",
+    ) -> UserProfile:
+        """Apply identity-only patches to an existing profile."""
+        changes: dict[str, Any] = {"updated_at": _now_iso(), "last_seen": _now_iso()}
+
+        # Merge im_ids
+        merged_im_ids = dict(existing.im_ids)
+        merged_im_ids.setdefault(platform, {})[id_field] = id_value
+        if extra_ids:
+            merged_im_ids[platform].update(extra_ids)
+        changes["im_ids"] = merged_im_ids
+
+        # Name upgrade: replace placeholder (name == open_id) with real display name
+        if name and name != existing.name:
+            is_placeholder = existing.name == id_value or existing.name.startswith("ou_")
+            if is_placeholder:
+                changes["name"] = name
+            # else: keep existing name (don't overwrite a valid display name with weaker info)
+
+        # Fill missing identity fields (don't overwrite existing values)
+        if department and not existing.department:
+            changes["department"] = department
+        if title and not existing.title:
+            changes["title"] = title
+        if avatar_url and not existing.avatar_url:
+            changes["avatar_url"] = avatar_url
+
+        updated = replace(existing, **changes)
+        self._profiles[existing.id] = updated
+        self._build_index(updated)
+        self._write(updated)
+        return updated
+
     def update_field(self, profile_id: str, field_name: str, value: Any) -> UserProfile | None:
         """Update a single field on an existing profile."""
         profile = self._profiles.get(profile_id)

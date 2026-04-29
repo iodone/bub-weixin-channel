@@ -426,34 +426,36 @@ class FeishuChannel(Channel):
         # Record start time for elapsed time calculation
         self._message_start_time[message.message_id] = time.time()
 
-        # Best-effort profile enrichment (must not block message dispatch)
+        # Best-effort sender identity patch (must not block message dispatch)
         try:
             if sender_id and message.sender_type != "bot":
-                profile = self._profile_store.lookup("feishu", "open_id", sender_id)
-                if profile is not None:
-                    self._profile_store.touch(profile.id)
-                else:
-                    extra_ids: dict[str, str] = {}
-                    if message.sender_union_id:
-                        extra_ids["union_id"] = message.sender_union_id
-                    if message.sender_user_id:
-                        extra_ids["user_id"] = message.sender_user_id
+                extra_ids: dict[str, str] = {}
+                if message.sender_union_id:
+                    extra_ids["union_id"] = message.sender_union_id
+                if message.sender_user_id:
+                    extra_ids["user_id"] = message.sender_user_id
 
-                    info = {"name": message.sender_name or sender_id}
-                    if self._api_client is not None:
-                        from bub_im_bridge.feishu.api import fetch_user_info
-                        info = fetch_user_info(self._api_client, sender_id)
+                # Try to get richer info from Contact API for new senders
+                # or when existing profile has placeholder name (name == open_id)
+                existing = self._profile_store.lookup("feishu", "open_id", sender_id)
+                needs_api = existing is None or (
+                    not message.sender_name and existing.name.startswith("ou_")
+                )
+                info: dict[str, Any] = {}
+                if needs_api and self._api_client is not None:
+                    from bub_im_bridge.feishu.api import fetch_user_info
+                    info = fetch_user_info(self._api_client, sender_id)
 
-                    self._profile_store.upsert(
-                        platform="feishu",
-                        id_field="open_id",
-                        id_value=sender_id,
-                        name=info.get("name", sender_id),
-                        extra_ids=extra_ids,
-                        department=info.get("department_id", ""),
-                        title=info.get("job_title", ""),
-                        avatar_url=info.get("avatar_url", ""),
-                    )
+                self._profile_store.identity_patch(
+                    platform="feishu",
+                    id_field="open_id",
+                    id_value=sender_id,
+                    name=message.sender_name or info.get("name", ""),
+                    extra_ids=extra_ids if extra_ids else None,
+                    department=info.get("department_id", ""),
+                    title=info.get("job_title", ""),
+                    avatar_url=info.get("avatar_url", ""),
+                )
         except Exception:
             logger.warning("feishu.profile_enrichment failed sender={}", sender_id, exc_info=True)
 
@@ -547,12 +549,39 @@ class FeishuChannel(Channel):
         sender_profile = self._profile_store.lookup("feishu", "open_id", sender_id) if sender_id else None
         user_context_hint = build_user_context_hint(sender_profile)
 
+        # Structured actor context (phase 4)
+        sender_obj: dict[str, Any] = {
+            "open_id": message.sender_open_id or "",
+            "name": message.sender_name or "",
+        }
+        if message.sender_user_id:
+            sender_obj["user_id"] = message.sender_user_id
+        if message.sender_union_id:
+            sender_obj["union_id"] = message.sender_union_id
+
+        mentions_list: list[dict[str, str]] = [
+            {"open_id": m.open_id or "", "name": m.name or ""}
+            for m in message.mentions
+            if m.open_id  # skip mentions without open_id
+        ]
+
+        # reply_target defaults to sender; if quoting, still default to sender
+        # (the model should decide whether to address the quoted person)
+        reply_target: dict[str, Any] = {
+            "kind": "sender",
+            "open_id": message.sender_open_id or "",
+            "name": message.sender_name or "",
+        }
+
         payload: dict[str, Any] = {
             "message": message.text + FEISHU_OUTPUT_INSTRUCTION + history_hint + user_context_hint,
             "message_id": message.message_id,
             "chat_type": message.chat_type,
             "sender_id": sender_id,
             "sender_name": message.sender_display,
+            "sender": sender_obj,
+            "mentions": mentions_list,
+            "reply_target": reply_target,
             "create_time": format_feishu_timestamp(message.create_time),
         }
 
