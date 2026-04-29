@@ -137,6 +137,29 @@ def test_store_feishu_integration(tmp_path: Path):
     assert reloaded.name == "Alice"
 
 
+def test_feishu_user_id_persists_in_im_ids(tmp_path: Path):
+    """user_id and union_id are persisted in im_ids.feishu after write/read."""
+    store = ProfileStore(tmp_path / "profiles")
+    store.load()
+
+    store.upsert(
+        platform="feishu",
+        id_field="open_id",
+        id_value="ou_persist",
+        name="Persist",
+        extra_ids={"union_id": "on_persist", "user_id": "persist.wang"},
+    )
+
+    # Reload from disk
+    store2 = ProfileStore(tmp_path / "profiles")
+    store2.load()
+    p = store2.lookup("feishu", "open_id", "ou_persist")
+    assert p is not None
+    assert p.im_ids["feishu"]["open_id"] == "ou_persist"
+    assert p.im_ids["feishu"]["union_id"] == "on_persist"
+    assert p.im_ids["feishu"]["user_id"] == "persist.wang"
+
+
 def test_upsert_merges_existing(tmp_path: Path):
     """upsert updates existing profile with new data instead of ignoring."""
     store = ProfileStore(tmp_path / "profiles")
