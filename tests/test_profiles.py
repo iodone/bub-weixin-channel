@@ -203,3 +203,120 @@ def test_lookup_by_name(tmp_path: Path):
     assert store.lookup_by_name("小王") is not None
     assert store.lookup_by_name("alice") is not None  # case insensitive
     assert store.lookup_by_name("Unknown") is None
+
+
+def test_feishu_ou_prefix_valid(tmp_path: Path):
+    """ou_ prefixed open_id works normally for Feishu."""
+    store = ProfileStore(tmp_path / "profiles")
+    store.load()
+
+    p = store.upsert(
+        platform="feishu",
+        id_field="open_id",
+        id_value="ou_abc123",
+        name="Alice",
+    )
+    assert p.name == "Alice"
+    assert store.lookup("feishu", "open_id", "ou_abc123") is not None
+
+
+def test_feishu_rejects_non_ou_open_id(tmp_path: Path):
+    """Non-ou_ open_id is rejected for Feishu."""
+    store = ProfileStore(tmp_path / "profiles")
+    store.load()
+
+    import pytest
+    with pytest.raises(ValueError, match="ou_ prefix"):
+        store.upsert(
+            platform="feishu",
+            id_field="open_id",
+            id_value="cli_abc123",
+            name="BotUser",
+        )
+
+
+def test_feishu_rejects_union_id_as_primary(tmp_path: Path):
+    """union_id cannot be used as primary Feishu identity."""
+    store = ProfileStore(tmp_path / "profiles")
+    store.load()
+
+    import pytest
+    with pytest.raises(ValueError, match="ou_ prefix"):
+        store.upsert(
+            platform="feishu",
+            id_field="union_id",
+            id_value="on_abc123",
+            name="Alice",
+        )
+
+
+def test_feishu_rejects_user_id_as_primary(tmp_path: Path):
+    """user_id cannot be used as primary Feishu identity."""
+    store = ProfileStore(tmp_path / "profiles")
+    store.load()
+
+    import pytest
+    with pytest.raises(ValueError, match="ou_ prefix"):
+        store.upsert(
+            platform="feishu",
+            id_field="user_id",
+            id_value="alice.wang",
+            name="Alice",
+        )
+
+
+def test_feishu_extra_ids_not_indexed(tmp_path: Path):
+    """union_id/user_id stored as extra_ids are not indexed for lookup."""
+    store = ProfileStore(tmp_path / "profiles")
+    store.load()
+
+    store.upsert(
+        platform="feishu",
+        id_field="open_id",
+        id_value="ou_alice",
+        name="Alice",
+        extra_ids={"union_id": "on_alice", "user_id": "alice.wang"},
+    )
+
+    # Primary lookup works
+    assert store.lookup("feishu", "open_id", "ou_alice") is not None
+    # union_id/user_id should NOT be indexed as lookup keys
+    assert store.lookup("feishu", "union_id", "on_alice") is None
+    assert store.lookup("feishu", "user_id", "alice.wang") is None
+
+
+def test_non_feishu_platform_unaffected(tmp_path: Path):
+    """Other platforms are not affected by Feishu validation."""
+    store = ProfileStore(tmp_path / "profiles")
+    store.load()
+
+    # Telegram with arbitrary user_id should work fine
+    p = store.upsert(
+        platform="telegram",
+        id_field="user_id",
+        id_value="8671028832",
+        name="Bob",
+    )
+    assert p.name == "Bob"
+    assert store.lookup("telegram", "user_id", "8671028832") is not None
+
+
+def test_feishu_reload_extras_not_indexed(tmp_path: Path):
+    """After reload, extra_ids (union_id/user_id) are still not indexed."""
+    store = ProfileStore(tmp_path / "profiles")
+    store.load()
+
+    store.upsert(
+        platform="feishu",
+        id_field="open_id",
+        id_value="ou_reload",
+        name="Reload",
+        extra_ids={"union_id": "on_reload"},
+    )
+
+    # Reload from disk
+    store2 = ProfileStore(tmp_path / "profiles")
+    store2.load()
+
+    assert store2.lookup("feishu", "open_id", "ou_reload") is not None
+    assert store2.lookup("feishu", "union_id", "on_reload") is None
