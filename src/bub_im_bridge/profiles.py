@@ -16,6 +16,11 @@ def _short_uuid() -> str:
     return uuid.uuid4().hex[:8]
 
 
+def _is_valid_feishu_user_id(id_field: str, id_value: str) -> bool:
+    """Only open_id with ou_ prefix is a valid Feishu user canonical identity."""
+    return id_field == "open_id" and id_value.startswith("ou_")
+
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
 
@@ -112,6 +117,8 @@ class ProfileStore:
     def _build_index(self, profile: UserProfile) -> None:
         for platform, ids in profile.im_ids.items():
             for field, value in ids.items():
+                if platform == "feishu" and not _is_valid_feishu_user_id(field, value):
+                    continue
                 key = f"{platform}:{field}:{value}"
                 self._index[key] = profile.id
 
@@ -135,6 +142,11 @@ class ProfileStore:
         title: str = "",
         avatar_url: str = "",
     ) -> UserProfile:
+        if platform == "feishu" and not _is_valid_feishu_user_id(id_field, id_value):
+            raise ValueError(
+                f"Feishu canonical identity must be open_id with ou_ prefix, "
+                f"got id_field={id_field!r}, id_value={id_value!r}"
+            )
         existing = self.lookup(platform, id_field, id_value)
         if existing is not None:
             # Merge new data into existing profile

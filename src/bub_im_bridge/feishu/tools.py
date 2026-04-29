@@ -143,16 +143,23 @@ async def user_lookup(params: UserLookupInput, *, context: ToolContext) -> str:
 
     当消息中提及某个用户（如 @某某），或需要了解某人的信息时使用此工具。
     按名字查找时使用 name 参数，按 IM ID 查找时使用 platform + id_field + id_value。
+    Feishu 用户只能用 open_id (ou_ 开头) 查找。
     """
     store = _get_profile_store(context)
 
     profile = None
     if params.name:
         profile = store.lookup_by_name(params.name)
-    elif params.platform and params.id_field and params.id_value:
-        profile = store.lookup(params.platform, params.id_field, params.id_value)
+    elif params.platform and params.id_value:
+        platform = params.platform
+        id_field = params.id_field or ("open_id" if platform == "feishu" else None)
+        if not id_field:
+            return "错误：需要提供 id_field"
+        if platform == "feishu" and id_field != "open_id":
+            return "错误：Feishu 用户只能用 open_id 查找"
+        profile = store.lookup(platform, id_field, params.id_value)
     else:
-        return "错误：需要提供 name 或 platform+id_field+id_value"
+        return "错误：需要提供 name 或 platform+id_value"
 
     if profile is None:
         return f"未找到用户 profile（查询: name={params.name}, platform={params.platform}）"
@@ -262,7 +269,14 @@ async def user_create(params: UserCreateInput, *, context: ToolContext) -> str:
 
     当需要手动创建一个新的用户 profile 时使用此工具。
     如果用户已存在（相同 platform + id_field + id_value），会更新已有 profile。
+    Feishu 用户必须用 open_id (ou_ 开头) 创建。
     """
+    if params.platform == "feishu":
+        if params.id_field != "open_id":
+            return "错误：Feishu 用户必须用 open_id 创建"
+        if not params.id_value.startswith("ou_"):
+            return "错误：Feishu open_id 必须以 ou_ 开头"
+
     store = _get_profile_store(context)
 
     profile = store.upsert(
