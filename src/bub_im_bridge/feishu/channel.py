@@ -567,7 +567,11 @@ class FeishuChannel(Channel):
 
         # reply_target defaults to sender; if quoting, still default to sender
         # (the model should decide whether to address the quoted person)
-        reply_target = sender_id
+        reply_target: dict[str, Any] = {
+            "kind": "sender",
+            "open_id": message.sender_open_id or "",
+            "name": message.sender_name or "",
+        }
 
         payload: dict[str, Any] = {
             "message": message.text + FEISHU_OUTPUT_INSTRUCTION + history_hint + user_context_hint,

@@ -174,7 +174,7 @@ class TestStructuredPayloadInChannelMessage:
         assert payload["mentions"][1] == {"open_id": "ou_charlie", "name": "Charlie"}
 
     async def test_reply_target_defaults_to_sender(self, tmp_path: Path):
-        """When no parent_id, reply_target should default to current sender."""
+        """When no parent_id, reply_target should default to current sender as structured object."""
         channel = _make_channel(tmp_path)
         raw = _make_raw_event(sender_open_id="ou_alice", sender_name="Alice")
         msg = _parse_event(raw)
@@ -186,7 +186,11 @@ class TestStructuredPayloadInChannelMessage:
         payload = json.loads(channel_msg.content)
 
         assert "reply_target" in payload
-        assert payload["reply_target"] == "ou_alice"
+        assert payload["reply_target"] == {
+            "kind": "sender",
+            "open_id": "ou_alice",
+            "name": "Alice",
+        }
 
     async def test_reply_target_still_sender_when_quoting(self, tmp_path: Path):
         """Even when quoting, reply_target defaults to current sender."""
@@ -205,7 +209,9 @@ class TestStructuredPayloadInChannelMessage:
         payload = json.loads(channel_msg.content)
 
         # reply_target is the current sender, not the quoted message author
-        assert payload["reply_target"] == "ou_alice"
+        assert payload["reply_target"]["kind"] == "sender"
+        assert payload["reply_target"]["open_id"] == "ou_alice"
+        assert payload["reply_target"]["name"] == "Alice"
 
     async def test_payload_preserves_flat_sender_fields(self, tmp_path: Path):
         """Flat sender_id and sender_name should still be present for backward compat."""
