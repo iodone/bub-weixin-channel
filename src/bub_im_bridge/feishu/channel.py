@@ -431,7 +431,16 @@ class FeishuChannel(Channel):
             if sender_id and message.sender_type != "bot":
                 profile = self._profile_store.lookup("feishu", "open_id", sender_id)
                 if profile is not None:
-                    self._profile_store.touch(profile.id)
+                    # Upgrade placeholder name if current name is just the open_id
+                    if profile.name == sender_id and message.sender_name:
+                        self._profile_store.upsert(
+                            platform="feishu",
+                            id_field="open_id",
+                            id_value=sender_id,
+                            name=message.sender_name,
+                        )
+                    else:
+                        self._profile_store.touch(profile.id)
                 else:
                     extra_ids: dict[str, str] = {}
                     if message.sender_union_id:
