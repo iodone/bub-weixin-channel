@@ -13,7 +13,6 @@
 #
 # Environment variables (loaded from .env):
 #   BUB_WORKSPACE   - Host mode runtime workspace (read-write bind inside sandbox)
-#   BUB_BOXSH_HOST  - Legacy host mode COW path (no longer used, kept for backward compatibility)
 #   BUB_SKILLS      - Skills directory (read-only in sandbox)
 #   BUB_WEIXIN_DATA - WeChat data directory (read-write, optional)
 #   BUB_FEISHU_HOME - Feishu CLI auth directory (read-write, optional, default ~/.feishu)
@@ -58,7 +57,6 @@ expand_path() {
 }
 
 BUB_WORKSPACE="$(expand_path "${BUB_WORKSPACE:?BUB_WORKSPACE not set}")"
-BUB_BOXSH_HOST="$(expand_path "${BUB_BOXSH_HOST:-}")"
 BUB_SKILLS="$(expand_path "${BUB_SKILLS:-$HOME/.agents/skills}")"
 BUB_WEIXIN_DATA="$(expand_path "${BUB_WEIXIN_DATA:-$HOME/.openclaw/openclaw-weixin}")"
 BUB_FEISHU_HOME="$(expand_path "${BUB_FEISHU_HOME:-$HOME/.feishu}")"
@@ -88,15 +86,9 @@ esac
 # uv binary and toolchain (Python installs, caches)
 [ -d "$UV_BIN_DIR" ] && BOXSH_ARGS="$BOXSH_ARGS --bind ro:$UV_BIN_DIR"
 [ -d "$UV_DATA_DIR" ] && BOXSH_ARGS="$BOXSH_ARGS --bind ro:$UV_DATA_DIR"
-# Homebrew global bins and Node-installed CLI payloads (e.g. llm-wiki)
+# Homebrew global bins and Node-installed CLI payloads
 [ -d /opt/homebrew/bin ] && BOXSH_ARGS="$BOXSH_ARGS --bind ro:/opt/homebrew/bin"
 [ -d /opt/homebrew/lib/node_modules ] && BOXSH_ARGS="$BOXSH_ARGS --bind ro:/opt/homebrew/lib/node_modules"
-# Some globally installed Node CLIs are linked to local source checkouts.
-# Expose the resolved source tree when present so the CLI remains runnable.
-if [ -L /opt/homebrew/lib/node_modules/@jackwener/llm-wiki ]; then
-    LLM_WIKI_SRC="$(cd "$(dirname /opt/homebrew/lib/node_modules/@jackwener/llm-wiki)" && pwd)/$(readlink /opt/homebrew/lib/node_modules/@jackwener/llm-wiki)"
-    [ -d "$LLM_WIKI_SRC" ] && BOXSH_ARGS="$BOXSH_ARGS --bind ro:$LLM_WIKI_SRC"
-fi
 # pipx venvs (for tools installed via pipx, e.g. kyuubi)
 PIPX_HOME="${PIPX_HOME:-$HOME/.local/pipx}"
 [ -d "$PIPX_HOME" ] && BOXSH_ARGS="$BOXSH_ARGS --bind ro:$PIPX_HOME"
