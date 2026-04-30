@@ -56,6 +56,12 @@ expand_path() {
     eval echo "$1"
 }
 
+append_bind_if_dir() {
+    mode="$1"
+    path="$2"
+    [ -d "$path" ] && BOXSH_ARGS="$BOXSH_ARGS --bind $mode:$path"
+}
+
 BUB_WORKSPACE="$(expand_path "${BUB_WORKSPACE:?BUB_WORKSPACE not set}")"
 BUB_SKILLS="$(expand_path "${BUB_SKILLS:-$HOME/.agents/skills}")"
 BUB_WEIXIN_DATA="$(expand_path "${BUB_WEIXIN_DATA:-$HOME/.openclaw/openclaw-weixin}")"
@@ -84,29 +90,29 @@ case "$SCRIPT_DIR" in
 esac
 
 # uv binary and toolchain (Python installs, caches)
-[ -d "$UV_BIN_DIR" ] && BOXSH_ARGS="$BOXSH_ARGS --bind ro:$UV_BIN_DIR"
-[ -d "$UV_DATA_DIR" ] && BOXSH_ARGS="$BOXSH_ARGS --bind ro:$UV_DATA_DIR"
+append_bind_if_dir ro "$UV_BIN_DIR"
+append_bind_if_dir ro "$UV_DATA_DIR"
 # Homebrew global bins and Node-installed CLI payloads
-[ -d /opt/homebrew/bin ] && BOXSH_ARGS="$BOXSH_ARGS --bind ro:/opt/homebrew/bin"
-[ -d /opt/homebrew/lib/node_modules ] && BOXSH_ARGS="$BOXSH_ARGS --bind ro:/opt/homebrew/lib/node_modules"
+append_bind_if_dir ro /opt/homebrew/bin
+append_bind_if_dir ro /opt/homebrew/lib/node_modules
 # pipx venvs (for tools installed via pipx, e.g. kyuubi)
 PIPX_HOME="${PIPX_HOME:-$HOME/.local/pipx}"
-[ -d "$PIPX_HOME" ] && BOXSH_ARGS="$BOXSH_ARGS --bind ro:$PIPX_HOME"
+append_bind_if_dir ro "$PIPX_HOME"
 
 # Optional binds — real user directories, accessed at their real paths via ~
 # Skills directory (read-only)
 [ -d "$BUB_SKILLS" ] && BOXSH_ARGS="$BOXSH_ARGS --bind ro:$BUB_SKILLS"
 # Weixin parent dir (ro for path resolution) and data dir (wr for sync state)
 BUB_WEIXIN_STATE_DIR="$(dirname "$BUB_WEIXIN_DATA")"
-[ -d "$BUB_WEIXIN_STATE_DIR" ] && BOXSH_ARGS="$BOXSH_ARGS --bind ro:$BUB_WEIXIN_STATE_DIR"
-[ -d "$BUB_WEIXIN_DATA" ] && BOXSH_ARGS="$BOXSH_ARGS --bind wr:$BUB_WEIXIN_DATA"
+append_bind_if_dir ro "$BUB_WEIXIN_STATE_DIR"
+append_bind_if_dir wr "$BUB_WEIXIN_DATA"
 # Feishu CLI auth directory (writable for token refresh)
-[ -d "$BUB_FEISHU_HOME" ] && BOXSH_ARGS="$BOXSH_ARGS --bind wr:$BUB_FEISHU_HOME"
+append_bind_if_dir wr "$BUB_FEISHU_HOME"
 # User config, cache, and kyuubi (writable, tools resolve via ~)
-[ -d "$HOME/.config" ] && BOXSH_ARGS="$BOXSH_ARGS --bind wr:$HOME/.config"
-[ -d "$HOME/.cache" ] && BOXSH_ARGS="$BOXSH_ARGS --bind wr:$HOME/.cache"
-[ -d "$HOME/.kyuubi" ] && BOXSH_ARGS="$BOXSH_ARGS --bind wr:$HOME/.kyuubi"
-[ -d "$HOME/.opencli" ] && BOXSH_ARGS="$BOXSH_ARGS --bind wr:$HOME/.opencli"
+append_bind_if_dir wr "$HOME/.config"
+append_bind_if_dir wr "$HOME/.cache"
+append_bind_if_dir wr "$HOME/.kyuubi"
+append_bind_if_dir wr "$HOME/.opencli"
 
 # Sandbox init: HOME is the real user home, TMPDIR in BUB_HOME for isolation
 SANDBOX_INIT="export HOME=$HOME \
