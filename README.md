@@ -103,7 +103,10 @@ uv pip install "git+https://github.com/ob-labs/bubseek.git#subdirectory=contrib/
 
 ## 沙箱部署
 
-通过 [boxsh](https://github.com/xicilion/boxsh) 沙箱运行，Agent 对工作空间的写入通过 COW（写时复制）隔离到独立目录，原始工作空间不受影响。支持两种部署模式：
+通过 [boxsh](https://github.com/xicilion/boxsh) 沙箱运行。当前两种部署模式的工作区策略不同：
+
+- 宿主机模式：直接读写真实 `BUB_WORKSPACE`
+- Docker 模式：继续使用 COW（写时复制）隔离工作区
 
 ### 宿主机模式（推荐开发调试）
 
@@ -115,6 +118,9 @@ cp .env.example .env
 # 编辑 .env，填入必要配置
 
 # 2. 启动
+#    run-host.sh 每次执行前都会先在宿主机预装推荐插件：
+#    - bub-web-search@main
+#    - bub-schedule@main
 ./run-host.sh
 ```
 
@@ -140,23 +146,22 @@ docker-compose up -d
 docker-compose logs -f
 ```
 
-### COW 路径映射
-
-两种模式使用独立的 upper 目录，避免 COW 产物互相干扰：
+### Workspace 路径映射
 
 | 角色 | Docker 模式 | 宿主机模式 |
 |------|-------------|------------|
-| Lower（只读基座） | `/workspace-base`（来自 `$BUB_WORKSPACE`） | `$BUB_WORKSPACE` |
-| Upper（持久化写入） | `/workspace`（来自 `$BUB_BOXSH`） | `$BUB_BOXSH_HOST` |
-| Runtime workspace | `/workspace` | `$BUB_BOXSH_HOST` |
+| 基座 workspace | `/workspace-base`（来自 `$BUB_WORKSPACE`） | `$BUB_WORKSPACE` |
+| 写入层 | `/workspace`（来自 `$BUB_BOXSH`，COW upper） | `$BUB_WORKSPACE`（直接读写） |
+| Runtime workspace | `/workspace` | `$BUB_WORKSPACE` |
 
-> **重要：** Docker 模式使用 `BUB_BOXSH`，宿主机模式使用 `BUB_BOXSH_HOST`，两者不可混用。App 代码通过 `bub -w` 参数动态获取 workspace 路径，不硬编码任何路径。
+> **重要：** Docker 模式仍使用 `BUB_BOXSH` 作为 COW upper；宿主机模式不再使用 `BUB_BOXSH_HOST` 作为 runtime workspace。App 代码通过 `bub -w` 参数动态获取路径，不硬编码任何路径。
 
 ### 沙箱保护
 
 | 目录 | 权限 | 说明 |
 |------|------|------|
-| workspace | COW | Agent 工作空间（COW merged view，基座来自 `$BUB_WORKSPACE`） |
+| workspace | 宿主机模式可写 / Docker 模式 COW | Agent 工作空间 |
+| project repo | 宿主机模式可写 | `run-host.sh` 所在仓库；`uv run` 需要写 repo-local `.venv` |
 | skills | 只读 | Bub 技能目录 |
 | weixin data | 可写 | 微信登录凭据 + 同步状态 |
 | feishu auth | 可写 | feishu CLI 登录凭据（`~/.feishu`，token 刷新需要写权限） |
