@@ -1,27 +1,14 @@
 # Bub IM Bridge
 
-> 还在为 openclaw 繁琐配置苦恼吗？使用 `bub-im-bridge` **3 分钟**打通微信 / 飞书 / Telegram。
+为 [Bub](https://github.com/bubbuild/bub) 框架提供多渠道 IM 支持的 channel plugin。
 
-为 [Bub](https://github.com/bubbuild/bub) 框架提供多渠道 IM 支持，一套代码，三端互通。
-
-## 3 分钟快速接入
-
-### 第一步：安装
+## 安装
 
 ```bash
 uv pip install "git+https://github.com/iodone/bub-im-bridge.git"
 ```
 
-### 第二步：配置
-
-创建 `.env` 文件，填入你的配置（至少需要 `BUB_MODEL` 和 `BUB_API_KEY`）：
-
-```env
-BUB_MODEL=anthropic:claude-sonnet-4-20250514
-BUB_API_KEY=sk-ant-xxxxx
-```
-
-### 第三步：选择渠道启动
+## 渠道配置
 
 <details>
 <summary><b>飞书</b>（推荐，无需公网 IP）</summary>
@@ -88,112 +75,6 @@ uv run bub gateway
 
 </details>
 
-## 推荐插件
-
-```bash
-# Web 搜索能力
-uv run bub install bub-web-search@main
-
-# 定时任务
-uv run bub install bub-schedule@main
-
-# Bubseek Marimo 集成
-uv pip install "git+https://github.com/ob-labs/bubseek.git#subdirectory=contrib/bubseek-marimo"
-```
-
-## 沙箱部署
-
-通过 [boxsh](https://github.com/xicilion/boxsh) 沙箱运行。当前两种部署模式的工作区策略不同：
-
-- 宿主机模式：直接读写真实 `BUB_WORKSPACE`
-- Docker 模式：继续使用 COW（写时复制）隔离工作区
-
-### 宿主机模式（推荐开发调试）
-
-直接在宿主机用 boxsh 沙箱运行，无需 Docker。要求 boxsh >= 2.1.0。
-
-```bash
-# 1. 准备配置
-cp .env.example .env
-# 编辑 .env，填入必要配置
-
-# 2. 启动
-#    run-host.sh 每次执行前都会先在宿主机预装推荐插件：
-#    - bub-web-search@main
-#    - bub-schedule@main
-./run-host.sh
-```
-
-> **注意：** `./run-host.sh shell` 交互模式因 boxsh 自身限制暂不支持，仅可使用 `./run-host.sh` 启动网关服务。
-
-### Docker 模式（推荐生产部署）
-
-```bash
-# 1. 准备配置
-cp .env.example .env
-# 编辑 .env，填入 BUB_WORKSPACE 等配置
-
-# 2. 创建必要目录
-mkdir -p ~/.bub ~/.agents/skills ~/work/boxsh/bub-im-bridge
-
-# 3. 微信渠道需要先登录
-uv run -m bub_im_bridge login
-
-# 4. 启动容器
-docker-compose up -d
-
-# 5. 查看日志
-docker-compose logs -f
-```
-
-### Workspace 路径映射
-
-| 角色 | Docker 模式 | 宿主机模式 |
-|------|-------------|------------|
-| 基座 workspace | `/workspace-base`（来自 `$BUB_WORKSPACE`） | `$BUB_WORKSPACE` |
-| 写入层 | `/workspace`（来自 `$BUB_BOXSH`，COW upper） | `$BUB_WORKSPACE`（直接读写） |
-| Runtime workspace | `/workspace` | `$BUB_WORKSPACE` |
-
-> **重要：** Docker 模式仍使用 `BUB_BOXSH` 作为 COW upper；宿主机模式不再使用 `BUB_BOXSH_HOST` 作为 runtime workspace。App 代码通过 `bub -w` 参数动态获取路径，不硬编码任何路径。
-
-### 沙箱保护
-
-| 目录 | 权限 | 说明 |
-|------|------|------|
-| workspace | 宿主机模式可写 / Docker 模式 COW | Agent 工作空间 |
-| project repo | 宿主机模式可写 | `run-host.sh` 所在仓库；`uv run` 需要写 repo-local `.venv` |
-| skills | 只读 | Bub 技能目录 |
-| weixin data | 可写 | 微信登录凭据 + 同步状态 |
-| feishu auth | 可写 | feishu CLI 登录凭据（`~/.feishu`，token 刷新需要写权限） |
-| bub home | 可写 | Bub 运行数据（tapes、配置） |
-
-### Docker 调试
-
-```bash
-# 启动与 bub 同配置的 boxsh 调试实例
-docker-compose run --rm bub /entrypoint.sh shell
-
-# 查看当前运行态
-docker-compose exec bub /entrypoint.sh shell
-
-# 进入原始镜像环境（绕过 boxsh）
-docker-compose run --rm --entrypoint sh bub
-```
-
-📖 **详细文档**：[docs/DOCKER_USAGE.md](docs/DOCKER_USAGE.md)
-
-## 架构
-
-```
-┌─────────────┐
-│   微信用户   │──→ weixin-agent-sdk ──→ WeixinChannel  ──┐
-├─────────────┤                                            │
-│   飞书用户   │──→ lark.ws.Client   ──→ FeishuChannel   ──┼──→ Bub Framework ──→ Agent
-├─────────────┤                                            │
-│ Telegram用户 │──→ python-telegram-bot──→ TelegramChannel──┘
-└─────────────┘
-```
-
 ## 配置参考
 
 ### 通用配置
@@ -235,8 +116,6 @@ docker-compose run --rm --entrypoint sh bub
 | `BUB_TELEGRAM_ALLOW_CHATS` | 允许的 Chat ID，逗号分隔 | ❌ |
 | `BUB_TELEGRAM_PROXY` | HTTP 代理地址 | ❌ |
 
-> 完整配置参考 [`.env.example`](https://github.com/iodone/bub-im-bridge/blob/main/.env.example)
-
 ## 消息类型
 
 | 类型 | 微信 | 飞书 | Telegram |
@@ -246,6 +125,18 @@ docker-compose run --rm --entrypoint sh bub
 | 文件 | ✅ | ✅ | ✅ |
 | 语音 | ✅ | ✅ | ✅ |
 | 视频 | ✅ | ✅ | ✅ |
+
+## 架构
+
+```
+┌─────────────┐
+│   微信用户   │──→ weixin-agent-sdk ──→ WeixinChannel  ──┐
+├─────────────┤                                            │
+│   飞书用户   │──→ lark.ws.Client   ──→ FeishuChannel   ──┼──→ Bub Framework ──→ Agent
+├─────────────┤                                            │
+│ Telegram用户 │──→ python-telegram-bot──→ TelegramChannel──┘
+└─────────────┘
+```
 
 ## 项目结构
 
@@ -263,6 +154,16 @@ src/bub_im_bridge/
 ```
 
 > Telegram 通道由 Bub 框架内置提供。
+
+## 开发
+
+```bash
+# 安装开发依赖
+uv pip install -e ".[dev]"
+
+# 运行测试
+uv run pytest
+```
 
 ## 常见问题
 
