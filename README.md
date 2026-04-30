@@ -145,6 +145,7 @@ docker-compose logs -f
 | 目录 | 权限 | 说明 |
 |------|------|------|
 | workspace | 宿主机模式可写 / Docker 模式 COW | Agent 工作空间 |
+| project repo | 宿主机模式可写 | `run-host.sh` 所在仓库；`uv run` 需要写 repo-local `.venv` |
 | skills | 只读 | Bub 技能目录 |
 | weixin data | 可写 | 微信登录凭据 + 同步状态 |
 | feishu auth | 可写 | feishu CLI 登录凭据（`~/.feishu`，token 刷新需要写权限） |

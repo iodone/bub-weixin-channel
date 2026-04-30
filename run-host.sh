@@ -78,10 +78,11 @@ UV_DATA_DIR="$(expand_path "${XDG_DATA_HOME:-$HOME/.local/share}/uv")"
 # HOME is the real user home — no remapping. Path protection via selective binds.
 BOXSH_ARGS="--sandbox --bind wr:$BUB_WORKSPACE --bind wr:$BUB_HOME"
 
-# If the script itself is outside the workspace, expose it read-only as well.
+# If the project repo itself is outside BUB_WORKSPACE, it still needs to be
+# writable in host mode because `uv run` may update the repo-local `.venv`.
 case "$SCRIPT_DIR" in
   "$BUB_WORKSPACE"|"$BUB_WORKSPACE"/*) ;;
-  *) BOXSH_ARGS="$BOXSH_ARGS --bind ro:$SCRIPT_DIR" ;;
+  *) BOXSH_ARGS="$BOXSH_ARGS --bind wr:$SCRIPT_DIR" ;;
 esac
 
 # uv binary and toolchain (Python installs, caches)
