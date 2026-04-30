@@ -51,11 +51,14 @@ BUB_TELEGRAM_PROXY=http://127.0.0.1:1087  # 国内网络需要
 |--------|------|:----:|
 | `BUB_FEISHU_APP_ID` | 应用 App ID | ✅ |
 | `BUB_FEISHU_APP_SECRET` | 应用 App Secret | ✅ |
-| `BUB_FEISHU_VERIFICATION_TOKEN` | Webhook 验证 Token（可选） | ❌ |
-| `BUB_FEISHU_ENCRYPT_KEY` | Webhook 事件加密密钥（可选） | ❌ |
+| `BUB_FEISHU_VERIFICATION_TOKEN` | Webhook 验证 Token | ❌ |
+| `BUB_FEISHU_ENCRYPT_KEY` | Webhook 事件加密密钥 | ❌ |
 | `BUB_FEISHU_ALLOW_USERS` | 允许的用户 open_id，逗号分隔 | ❌ |
 | `BUB_FEISHU_ALLOW_CHATS` | 允许的 Chat ID，逗号分隔 | ❌ |
 | `BUB_FEISHU_BOT_OPEN_ID` | 机器人 open_id，用于群聊 @检测 | ❌ |
+| `BUB_FEISHU_BOT_NAME` | 机器人显示名称，用于 @名称 匹配（大小写不敏感） | ❌ |
+| `BUB_FEISHU_QUEUE_MAX_LENGTH` | 消息队列最大长度，0=不限制 | 0 |
+| `BUB_FEISHU_ADMIN_USERS` | 管理员 open_id，逗号分隔；管理员消息绕过排队，可发送 `,cancel` 取消任务 | ❌ |
 
 > **获取机器人 open_id 的方式**：
 >
@@ -75,6 +78,13 @@ BUB_TELEGRAM_PROXY=http://127.0.0.1:1087  # 国内网络需要
 | `BUB_TELEGRAM_ALLOW_USERS` | 允许的用户 ID，逗号分隔 | ❌ |
 | `BUB_TELEGRAM_ALLOW_CHATS` | 允许的 Chat ID，逗号分隔 | ❌ |
 | `BUB_TELEGRAM_PROXY` | HTTP 代理地址 | ❌ |
+
+### 微信
+
+| 配置项 | 说明 | 必需 |
+|--------|------|:----:|
+| `WEIXIN_BASE_URL` | 微信 API 基础地址 | ❌ |
+| `WEIXIN_ACCOUNT_ID` | 微信账号 ID | ❌ |
 
 ## 消息类型
 
