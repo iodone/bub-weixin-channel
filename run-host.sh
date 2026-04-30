@@ -66,7 +66,6 @@ install_recommended_plugins() {
     cd "$SCRIPT_DIR"
     uv run bub install bub-web-search@main
     uv run bub install bub-schedule@main
-    uv pip install "git+https://github.com/ob-labs/bubseek.git#subdirectory=contrib/bubseek-marimo"
 }
 
 BUB_WORKSPACE="$(expand_path "${BUB_WORKSPACE:?BUB_WORKSPACE not set}")"

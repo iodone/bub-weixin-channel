@@ -108,7 +108,6 @@ cp .env.example .env
 #    run-host.sh 每次执行前都会先在宿主机预装推荐插件：
 #    - bub-web-search@main
 #    - bub-schedule@main
-#    - bubseek-marimo
 ./run-host.sh
 ```
 
