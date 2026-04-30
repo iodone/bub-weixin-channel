@@ -45,23 +45,6 @@ BUB_TELEGRAM_PROXY=http://127.0.0.1:1087  # 国内网络需要
 | `BUB_API_KEY` | API 密钥 | ✅ |
 | `BUB_API_BASE` | API 端点（自定义模型时使用） | ❌ |
 
-### Agent 运行时
-
-| 配置项 | 说明 | 默认值 |
-|--------|------|--------|
-| `BUB_MAX_STEPS` | Agent 最大执行步数 | 50 |
-| `BUB_MAX_TOKENS` | 最大 token 数 | 16384 |
-| `BUB_MODEL_TIMEOUT_SECONDS` | 模型调用超时（秒） | 300 |
-
-### Channel Manager
-
-| 配置项 | 说明 | 默认值 |
-|--------|------|--------|
-| `BUB_ENABLED_CHANNELS` | 启用的渠道，逗号分隔或 `all` | `all` |
-| `BUB_DEBOUNCE_SECONDS` | 消息防抖间隔（秒） | 1.0 |
-| `BUB_MAX_WAIT_SECONDS` | 最大等待时间（秒） | 10.0 |
-| `BUB_ACTIVE_TIME_WINDOW` | 活跃时间窗口（秒） | 60.0 |
-
 ### 飞书
 
 | 配置项 | 说明 | 必需 |
