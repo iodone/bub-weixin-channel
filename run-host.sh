@@ -62,6 +62,13 @@ append_bind_if_dir() {
     [ -d "$path" ] && BOXSH_ARGS="$BOXSH_ARGS --bind $mode:$path"
 }
 
+install_recommended_plugins() {
+    cd "$SCRIPT_DIR"
+    uv run bub install bub-web-search@main
+    uv run bub install bub-schedule@main
+    uv pip install "git+https://github.com/ob-labs/bubseek.git#subdirectory=contrib/bubseek-marimo"
+}
+
 BUB_WORKSPACE="$(expand_path "${BUB_WORKSPACE:?BUB_WORKSPACE not set}")"
 BUB_SKILLS="$(expand_path "${BUB_SKILLS:-$HOME/.agents/skills}")"
 BUB_WEIXIN_DATA="$(expand_path "${BUB_WEIXIN_DATA:-$HOME/.openclaw/openclaw-weixin}")"
@@ -154,6 +161,11 @@ run_supervised() {
     cleanup
     exit 0
 }
+
+# Always refresh the recommended plugins on the host before entering boxsh.
+# These commands may write the repo-local .venv, so they must run outside the
+# sandbox and before any gateway/shell/command execution.
+install_recommended_plugins
 
 # If no arguments, start the gateway
 if [ $# -eq 0 ]; then
