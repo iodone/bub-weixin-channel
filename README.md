@@ -10,70 +10,30 @@ uv pip install "git+https://github.com/iodone/bub-im-bridge.git"
 
 ## 渠道配置
 
-<details>
-<summary><b>飞书</b>（推荐，无需公网 IP）</summary>
+### 飞书
 
-1. 在[飞书开放平台](https://open.feishu.cn/app)创建企业自建应用
-2. 获取 App ID 和 App Secret，填入 `.env`：
+在[飞书开放平台](https://open.feishu.cn/app)创建企业自建应用，获取 App ID 和 App Secret。
 
 ```env
 BUB_FEISHU_APP_ID=cli_xxxxxxxxxxxxxxxx
 BUB_FEISHU_APP_SECRET=your-app-secret
 ```
 
-3. 应用后台 → 事件与回调 → 接收方式：**使用长连接接收事件**
-4. 订阅事件：`im.message.receive_v1`（接收消息）
+应用后台 → 事件与回调 → 接收方式：**使用长连接接收事件**，订阅 `im.message.receive_v1` 事件。
 
-```bash
-uv run bub gateway --enable-channel feishu
-```
+### Telegram
 
-</details>
-
-<details>
-<summary><b>Telegram</b>（需要代理）</summary>
-
-1. 通过 [@BotFather](https://t.me/BotFather) 创建 Bot，获取 Token
-2. 填入 `.env`：
+通过 [@BotFather](https://t.me/BotFather) 创建 Bot，获取 Token。
 
 ```env
 BUB_TELEGRAM_TOKEN=123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11
 BUB_TELEGRAM_ALLOW_USERS=your-telegram-user-id
-# 国内网络需要配置代理
-BUB_TELEGRAM_PROXY=http://127.0.0.1:1087
+BUB_TELEGRAM_PROXY=http://127.0.0.1:1087  # 国内网络需要
 ```
 
-```bash
-uv run bub gateway --enable-channel telegram
-```
+### 微信
 
-</details>
-
-<details>
-<summary><b>微信</b>（扫码登录）</summary>
-
-```bash
-# 扫码登录
-uv run -m bub_im_bridge login
-
-# 启动
-uv run bub gateway --enable-channel weixin
-```
-
-</details>
-
-<details>
-<summary><b>多渠道同时启动</b></summary>
-
-```bash
-# 同时启动飞书和 Telegram
-uv run bub gateway --enable-channel feishu --enable-channel telegram
-
-# 或启动所有已配置的渠道
-uv run bub gateway
-```
-
-</details>
+微信渠道需要先扫码登录：`uv run -m bub_im_bridge login`
 
 ## 配置参考
 
