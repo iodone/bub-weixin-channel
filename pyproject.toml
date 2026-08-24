@@ -1,11 +1,11 @@
 [project]
 name = "bub-im-bridge"
-version = "0.7.4"
+version = "0.7.5"
 description = "WeChat and Feishu channel plugins for Bub framework"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "bub>=0.3.5",
+    "bub>=0.4.0",
     "weixin-agent-sdk @ git+https://github.com/iodone/weixin-agent-sdk",
     "lark-oapi>=1.6.2",
 ]
